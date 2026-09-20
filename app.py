@@ -100,30 +100,21 @@ col1, col2 = st.columns(2)
 # --------------------------------------------------
 
 with col1:
-
     with st.container(border=True):
-
         st.markdown("## 🔗 Linkowanie wewnętrzne")
-
         st.write(
             "Znajdź naturalne miejsca w artykule, "
             "w których warto dodać linki do innych "
             "stron w Twoim serwisie."
         )
-
         st.success("DOSTĘPNE")
 
-       if st.button(
-        "Otwórz narzędzie →",
-        key="internal_links",
-        use_container_width=True
+        if st.button(
+            "Otwórz narzędzie →",
+            key="internal_links",
+            use_container_width=True
         ):
-        st.switch_page("pages/internal_links.py")
-
-
-# --------------------------------------------------
-# AUDYT SEO
-# --------------------------------------------------
+            st.switch_page("pages/internal_links.py")
 
 with col2:
 
