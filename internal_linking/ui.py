@@ -3,11 +3,11 @@ import html
 import time
 
 from .extractor import extract_article_content
+
 from .sitemap import (
     get_sitemap_urls,
     find_sitemap_in_robots,
 )
-from .crawler import download_pages
 
 
 def show_internal_linking():
@@ -193,26 +193,55 @@ def show_internal_linking():
     ]
 
     # -------------------------------------------------
-    # LIMIT STRON
+    # TRYB ANALIZY
     # -------------------------------------------------
 
-    max_pages = st.selectbox(
-        "Maksymalna liczba stron do analizy",
-        [
-            250,
-            500,
-            1000,
-            2500,
-            5000,
-            "Wszystkie"
-        ],
-        index=2,
-        help=(
-            "Ograniczenie liczby stron pobieranych "
-            "z sitemap. Przy dużych serwisach "
-            "mniejsza liczba znacznie przyspiesza analizę."
-        )
+    st.markdown(
+        "### Tryb analizy"
     )
+
+    analysis_mode = st.radio(
+        "Jak szeroko analizować sitemapę?",
+        [
+            "⚡ Szybka analiza",
+            "🧠 Pełna analiza serwisu",
+        ],
+        horizontal=True
+    )
+
+    if analysis_mode == "⚡ Szybka analiza":
+
+        max_urls = st.selectbox(
+            "Maksymalna liczba URL-i",
+            [
+                100,
+                250,
+                500,
+                1000,
+            ],
+            index=1,
+            help=(
+                "Ograniczenie liczby URL-i analizowanych "
+                "z sitemap. Nie są pobierane strony."
+            )
+        )
+
+    else:
+
+        candidate_limit = st.selectbox(
+            "Maksymalna liczba kandydatów",
+            [
+                100,
+                200,
+                300,
+                500,
+            ],
+            index=2,
+            help=(
+                "Cała sitemap zostanie przeanalizowana "
+                "bez wchodzenia na strony."
+            )
+        )
 
     # -------------------------------------------------
     # ANALIZUJ
@@ -292,7 +321,7 @@ def show_internal_linking():
                     )
 
                 st.success(
-                    "Strona została pobrana."
+                    "Strona artykułu została pobrana."
                 )
 
                 with st.expander(
@@ -401,19 +430,26 @@ def show_internal_linking():
         )
 
         # -------------------------------------------------
-        # POBRANIE SITEMAP
+        # ODCZYT SITEMAP
         # -------------------------------------------------
 
         try:
 
+            sitemap_start = time.perf_counter()
+
             with st.spinner(
-                "Analizuję sitemapę..."
+                "Odczytuję sitemapę..."
             ):
 
                 sitemap_urls = get_sitemap_urls(
                     effective_sitemap_url,
                     exclude_fragments=exclude_fragments
                 )
+
+            sitemap_time = (
+                time.perf_counter()
+                - sitemap_start
+            )
 
             if not sitemap_urls:
 
@@ -422,179 +458,124 @@ def show_internal_linking():
                     "w sitemapie po zastosowaniu wykluczeń."
                 )
 
-            else:
+                st.stop()
 
-                if exclude_fragments:
+            # -------------------------------------------------
+            # USUNIĘCIE AKTUALNEGO ARTYKUŁU
+            # -------------------------------------------------
 
-                    st.success(
-                        f"Sitemap została poprawnie odczytana. "
-                        f"Po zastosowaniu wykluczeń pozostało "
-                        f"{len(sitemap_urls)} adresów URL."
-                    )
+            if mode == "Mam już artykuł na stronie":
 
-                else:
-
-                    st.success(
-                        f"Sitemap została poprawnie odczytana. "
-                        f"Znaleziono "
-                        f"{len(sitemap_urls)} adresów URL."
-                    )
-
-                # -------------------------------------------------
-                # WYBÓR URL-I DO POBRANIA
-                # -------------------------------------------------
-
-                if max_pages != "Wszystkie":
-
-                    sitemap_urls_to_download = sitemap_urls[
-                        :int(max_pages)
-                    ]
-
-                else:
-
-                    sitemap_urls_to_download = sitemap_urls
-
-                if len(sitemap_urls_to_download) < len(
-                    sitemap_urls
-                ):
-
-                    st.info(
-                        f"Do pobrania wybrano pierwsze "
-                        f"{len(sitemap_urls_to_download)} "
-                        f"z {len(sitemap_urls)} adresów URL."
-                    )
-
-                # -------------------------------------------------
-                # LICZNIK I POSTĘP POBIERANIA
-                # -------------------------------------------------
-
-                progress_text = st.empty()
-                progress_bar = st.progress(0)
-
-                start_time = time.perf_counter()
-
-                def update_download_progress(
-                    completed,
-                    total
-                ):
-
-                    elapsed = (
-                        time.perf_counter()
-                        - start_time
-                    )
-
-                    progress_text.markdown(
-                        f"**Pobieranie stron:** "
-                        f"{completed} / {total}  •  "
-                        f"**Czas:** {elapsed:.1f} s"
-                    )
-
-                    if total > 0:
-
-                        progress_bar.progress(
-                            completed / total
-                        )
-
-                # -------------------------------------------------
-                # POBIERANIE STRON RÓWNOLEGLE
-                # -------------------------------------------------
-
-                pages = download_pages(
-                    sitemap_urls_to_download,
-                    max_workers=25,
-                    progress_callback=(
-                        update_download_progress
-                    )
+                current_url = (
+                    article_url
+                    .strip()
+                    .rstrip("/")
+                    .lower()
                 )
 
-                elapsed_total = (
-                    time.perf_counter()
-                    - start_time
-                )
-
-                progress_bar.progress(1.0)
-
-                progress_text.success(
-                    f"Pobieranie zakończone. "
-                    f"{len(sitemap_urls_to_download)} stron "
-                    f"w {elapsed_total:.1f} s."
-                )
-
-                successful_pages = [
-                    page
-                    for page in pages
-                    if page["html"] is not None
+                sitemap_urls = [
+                    url
+                    for url in sitemap_urls
+                    if url
+                    .strip()
+                    .rstrip("/")
+                    .lower()
+                    != current_url
                 ]
 
-                failed_pages = [
-                    page
-                    for page in pages
-                    if page["html"] is None
-                ]
+            # -------------------------------------------------
+            # INFORMACJA
+            # -------------------------------------------------
+
+            if exclude_fragments:
 
                 st.success(
-                    f"Pobrano poprawnie "
-                    f"{len(successful_pages)} "
-                    f"z {len(sitemap_urls_to_download)} stron."
+                    f"Sitemap została odczytana. "
+                    f"Po wykluczeniach i pominięciu "
+                    f"aktualnego artykułu pozostało "
+                    f"{len(sitemap_urls)} URL-i."
                 )
 
-                if failed_pages:
+            else:
 
-                    st.warning(
-                        f"Nie udało się pobrać "
-                        f"{len(failed_pages)} stron."
-                    )
+                st.success(
+                    f"Sitemap została odczytana. "
+                    f"Pozostało "
+                    f"{len(sitemap_urls)} URL-i."
+                )
 
-                # -------------------------------------------------
-                # SZCZEGÓŁY POBIERANIA
-                # -------------------------------------------------
+            st.caption(
+                f"Czas odczytu sitemap: "
+                f"{sitemap_time:.2f} s"
+            )
 
-                with st.expander(
-                    "Szczegóły pobierania"
-                ):
+            st.info(
+                "ℹ️ Z sitemap pobierane są wyłącznie "
+                "adresy URL. Narzędzie nie odwiedza "
+                "stron znajdujących się pod tymi adresami."
+            )
 
-                    st.write(
-                        f"Liczba URL-i w sitemap: "
-                        f"{len(sitemap_urls)}"
-                    )
+            # -------------------------------------------------
+            # WYBÓR URL-I
+            # -------------------------------------------------
 
-                    st.write(
-                        f"Wybranych do pobrania: "
-                        f"{len(sitemap_urls_to_download)}"
-                    )
+            if analysis_mode == "⚡ Szybka analiza":
 
-                    st.write(
-                        f"Pobrane poprawnie: "
-                        f"{len(successful_pages)}"
-                    )
+                urls_to_analyze = sitemap_urls[
+                    :int(max_urls)
+                ]
 
-                    st.write(
-                        f"Błędy pobierania: "
-                        f"{len(failed_pages)}"
-                    )
+                st.info(
+                    f"Szybka analiza: "
+                    f"wybrano "
+                    f"{len(urls_to_analyze)} "
+                    f"URL-i."
+                )
 
-                    st.write(
-                        f"Czas pobierania: "
-                        f"{elapsed_total:.1f} s"
-                    )
+            else:
 
-                    if failed_pages:
+                # Na tym etapie nie pobieramy stron.
+                # Pełna analiza oznacza przejrzenie
+                # wszystkich URL-i z sitemap.
+                urls_to_analyze = sitemap_urls
 
-                        st.write(
-                            "Przykładowe błędy:"
-                        )
+                st.info(
+                    f"Pełna analiza: "
+                    f"przeanalizowanych zostanie "
+                    f"{len(urls_to_analyze)} "
+                    f"URL-i z sitemap."
+                )
 
-                        for page in failed_pages[:10]:
+            # -------------------------------------------------
+            # PODGLĄD URL-I
+            # -------------------------------------------------
 
-                            st.write(
-                                f"- {page['url']} — "
-                                f"{page['error']}"
-                            )
+            st.markdown(
+                "### Adresy URL z sitemap"
+            )
+
+            st.caption(
+                "Poniższe adresy zostały odczytane "
+                "bez odwiedzania stron."
+            )
+
+            for url in urls_to_analyze[:100]:
+
+                st.write(
+                    url
+                )
+
+            if len(urls_to_analyze) > 100:
+
+                st.caption(
+                    f"Pokazano pierwsze 100 z "
+                    f"{len(urls_to_analyze)} URL-i."
+                )
 
         except Exception as e:
 
             st.error(
-                f"Nie udało się pobrać sitemap: {e}"
+                f"Nie udało się odczytać sitemap: {e}"
             )
 
     # -------------------------------------------------
