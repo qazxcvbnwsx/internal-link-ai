@@ -141,7 +141,7 @@ def show_internal_linking():
                     )
 
     # -------------------------------------------------
-    # ZNALEZIONA SITEMAPA
+    # POKAŻ ZNALEZIONĄ SITEMAPĘ
     # -------------------------------------------------
 
     detected_sitemap = st.session_state.get(
@@ -186,12 +186,16 @@ def show_internal_linking():
     )
 
     exclude_fragments = [
-            line.strip()
-            for line in exclude_input.splitlines()
-            if line.strip()
-        ]
-    
-        max_pages = st.selectbox(
+        line.strip()
+        for line in exclude_input.splitlines()
+        if line.strip()
+    ]
+
+    # -------------------------------------------------
+    # LIMIT STRON
+    # -------------------------------------------------
+
+    max_pages = st.selectbox(
         "Maksymalna liczba stron do analizy",
         [
             250,
@@ -275,19 +279,6 @@ def show_internal_linking():
         if mode == "Mam już artykuł na stronie":
 
             try:
-                # -------------------------------------------------
-                # LIMIT STRON
-                # -------------------------------------------------
-                
-                if max_pages != "Wszystkie":
-                
-                    sitemap_urls_to_download = sitemap_urls[
-                        :int(max_pages)
-                    ]
-                
-                else:
-                
-                    sitemap_urls_to_download = sitemap_urls
 
                 with st.spinner(
                     "Pobieram i analizuję artykuł..."
@@ -453,17 +444,42 @@ def show_internal_linking():
                     )
 
                 # -------------------------------------------------
+                # WYBÓR URL-I DO POBRANIA
+                # -------------------------------------------------
+
+                if max_pages != "Wszystkie":
+
+                    sitemap_urls_to_download = sitemap_urls[
+                        :int(max_pages)
+                    ]
+
+                else:
+
+                    sitemap_urls_to_download = sitemap_urls
+
+                if len(sitemap_urls_to_download) < len(
+                    sitemap_urls
+                ):
+
+                    st.info(
+                        f"Do pobrania wybrano pierwsze "
+                        f"{len(sitemap_urls_to_download)} "
+                        f"z {len(sitemap_urls)} adresów URL."
+                    )
+
+                # -------------------------------------------------
                 # POBIERANIE STRON RÓWNOLEGLE
                 # -------------------------------------------------
 
                 with st.spinner(
-                    f"Pobieram {len(sitemap_urls)} stron "
-                    "równolegle..."
+                    f"Pobieram "
+                    f"{len(sitemap_urls_to_download)} stron "
+                    f"równolegle..."
                 ):
 
                     pages = download_pages(
-                        sitemap_urls,
-                        max_workers=10
+                        sitemap_urls_to_download,
+                        max_workers=25
                     )
 
                 successful_pages = [
@@ -480,7 +496,7 @@ def show_internal_linking():
 
                 st.success(
                     f"Pobrano {len(successful_pages)} "
-                    f"z {len(sitemap_urls)} stron."
+                    f"z {len(sitemap_urls_to_download)} stron."
                 )
 
                 if failed_pages:
@@ -490,6 +506,10 @@ def show_internal_linking():
                         f"{len(failed_pages)} stron."
                     )
 
+                # -------------------------------------------------
+                # SZCZEGÓŁY POBIERANIA
+                # -------------------------------------------------
+
                 with st.expander(
                     "Szczegóły pobierania"
                 ):
@@ -497,6 +517,11 @@ def show_internal_linking():
                     st.write(
                         f"Liczba URL-i w sitemap: "
                         f"{len(sitemap_urls)}"
+                    )
+
+                    st.write(
+                        f"Wybranych do pobrania: "
+                        f"{len(sitemap_urls_to_download)}"
                     )
 
                     st.write(
