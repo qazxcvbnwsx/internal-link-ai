@@ -18,8 +18,7 @@ CONTENT_TAGS = [
 
 def _extract_with_trafilatura(html):
     """
-    Drugi, awaryjny mechanizm ekstrakcji treści.
-    Używany, gdy standardowy ekstraktor nie znalazł treści.
+    Awaryjny ekstraktor dla nieznanych CMS-ów.
     """
 
     extracted = trafilatura.extract(
@@ -32,7 +31,6 @@ def _extract_with_trafilatura(html):
     if not extracted:
         return []
 
-
     soup = BeautifulSoup(
         extracted,
         "lxml"
@@ -40,7 +38,9 @@ def _extract_with_trafilatura(html):
 
     blocks = []
 
-    for element in soup.find_all(CONTENT_TAGS):
+    for element in soup.find_all(
+        CONTENT_TAGS
+    ):
 
         text = " ".join(
             element.get_text(
@@ -60,7 +60,6 @@ def _extract_with_trafilatura(html):
         }:
             if len(text) < 1:
                 continue
-
         else:
             if len(text) < 20:
                 continue
@@ -70,9 +69,58 @@ def _extract_with_trafilatura(html):
     return blocks
 
 
+def _clean_inline_html(element):
+    """
+    Zachowuje linki i podstawowe formatowanie
+    wewnątrz elementu.
+    """
+
+    fragment = BeautifulSoup(
+        element.decode_contents(),
+        "html.parser"
+    )
+
+    allowed_tags = {
+        "a",
+        "strong",
+        "b",
+        "em",
+        "i",
+        "u",
+        "br",
+    }
+
+    for tag in fragment.find_all(True):
+
+        if tag.name == "a":
+
+            href = tag.get(
+                "href"
+            )
+
+            if href:
+                tag.attrs = {
+                    "href": href,
+                    "class": "preview-link",
+                }
+            else:
+                tag.unwrap()
+
+        elif tag.name in allowed_tags:
+
+            if tag.name != "a":
+                tag.attrs = {}
+
+        else:
+            tag.unwrap()
+
+    return fragment.decode_contents()
+
+
 def _build_article_html(blocks):
     """
-    Buduje HTML podglądu z listy elementów.
+    Buduje HTML podglądu.
+    Zachowuje istniejące linki.
     """
 
     output = []
@@ -91,39 +139,46 @@ def _build_article_html(blocks):
         if not text:
             continue
 
+        inline_html = _clean_inline_html(
+            block
+        )
+
         if tag == "h1":
             output.append(
-                f"<h1>{text}</h1>"
+                f"<h1>{inline_html}</h1>"
             )
 
         elif tag == "h2":
             output.append(
-                f"<h2>{text}</h2>"
+                f"<h2>{inline_html}</h2>"
             )
 
         elif tag == "h3":
             output.append(
-                f"<h3>{text}</h3>"
+                f"<h3>{inline_html}</h3>"
             )
 
         elif tag == "h4":
             output.append(
-                f"<h4>{text}</h4>"
+                f"<h4>{inline_html}</h4>"
             )
 
-        elif tag == "p":
+        elif tag in {
+            "p",
+            "div",
+        }:
             output.append(
-                f"<p>{text}</p>"
+                f"<p>{inline_html}</p>"
             )
 
         elif tag == "li":
             output.append(
-                f"<li>{text}</li>"
+                f"<li>{inline_html}</li>"
             )
 
         elif tag == "blockquote":
             output.append(
-                f"<blockquote>{text}</blockquote>"
+                f"<blockquote>{inline_html}</blockquote>"
             )
 
     return "\n".join(output)
@@ -191,32 +246,58 @@ def extract_article_content(url):
     """
     Pobiera stronę i wyciąga główną treść artykułu.
 
-    Najpierw używany jest własny ekstraktor DOM.
-    Jeżeli nie znajdzie treści, uruchamiany jest
-    fallback oparty o Trafilaturę.
+    Dla znanych CMS-ów używa ekstraktora DOM.
+
+    Dla nieznanych CMS-ów używa Trafilatury.
+
+    Jeżeli wybrana metoda nie znajdzie treści,
+    uruchamiany jest drugi mechanizm jako fallback.
 
     Zwraca:
         article_html
         stats
     """
 
-    html = download_page(url)
+    html = download_page(
+        url
+    )
 
-    cms, blocks = extract_content_blocks(html)
-
-    method = "standard"
+    cms, standard_blocks = extract_content_blocks(
+        html
+    )
 
     # -------------------------------------------------
-    # FALLBACK
+    # NIEZNANY CMS
     # -------------------------------------------------
 
-    if not blocks:
+    if cms == "unknown":
 
         blocks = _extract_with_trafilatura(
             html
         )
 
         method = "trafilatura"
+
+        if not blocks:
+            blocks = standard_blocks
+            method = "standard"
+
+    # -------------------------------------------------
+    # ZNANY CMS
+    # -------------------------------------------------
+
+    else:
+
+        blocks = standard_blocks
+        method = "standard"
+
+        if not blocks:
+
+            blocks = _extract_with_trafilatura(
+                html
+            )
+
+            method = "trafilatura"
 
     if not blocks:
         raise ValueError(
