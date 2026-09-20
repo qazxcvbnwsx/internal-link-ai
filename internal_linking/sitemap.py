@@ -1,5 +1,6 @@
 import requests
 from bs4 import BeautifulSoup
+from urllib.parse import urlparse
 
 from .crawler import USER_AGENT
 
@@ -37,6 +38,120 @@ def _filter_urls(urls, exclude_fragments=None):
         filtered.append(url)
 
     return list(dict.fromkeys(filtered))
+
+
+def find_sitemap_in_robots(page_url):
+    """
+    Sprawdza robots.txt domeny i szuka wpisu Sitemap:.
+
+    Zwraca:
+        {
+            "status": "found" / "missing" / "not_listed" / "error",
+            "sitemap_url": str | None,
+            "robots_url": str
+        }
+    """
+
+    parsed = urlparse(page_url)
+
+    if not parsed.scheme or not parsed.netloc:
+        return {
+            "status": "error",
+            "sitemap_url": None,
+            "robots_url": "",
+        }
+
+    robots_url = (
+        f"{parsed.scheme}://{parsed.netloc}/robots.txt"
+    )
+
+    try:
+
+        response = requests.get(
+            robots_url,
+            timeout=15,
+            headers={
+                "User-Agent": USER_AGENT
+            },
+            allow_redirects=True,
+        )
+
+    except requests.RequestException:
+
+        return {
+            "status": "error",
+            "sitemap_url": None,
+            "robots_url": robots_url,
+        }
+
+    # robots.txt nie istnieje
+    if response.status_code == 404:
+
+        return {
+            "status": "missing",
+            "sitemap_url": None,
+            "robots_url": robots_url,
+        }
+
+    # Inny błąd serwera
+    if response.status_code != 200:
+
+        return {
+            "status": "error",
+            "sitemap_url": None,
+            "robots_url": robots_url,
+        }
+
+    sitemap_urls = []
+
+    for line in response.text.splitlines():
+
+        line = line.strip()
+
+        if not line:
+            continue
+
+        # Pomijamy komentarze
+        if line.startswith("#"):
+            continue
+
+        if ":" not in line:
+            continue
+
+        directive, value = line.split(
+            ":",
+            1
+        )
+
+        if directive.strip().lower() != "sitemap":
+            continue
+
+        sitemap_url = value.strip()
+
+        if sitemap_url:
+            sitemap_urls.append(
+                sitemap_url
+            )
+
+    sitemap_urls = list(
+        dict.fromkeys(
+            sitemap_urls
+        )
+    )
+
+    if not sitemap_urls:
+
+        return {
+            "status": "not_listed",
+            "sitemap_url": None,
+            "robots_url": robots_url,
+        }
+
+    return {
+        "status": "found",
+        "sitemap_url": sitemap_urls[0],
+        "robots_url": robots_url,
+    }
 
 
 def get_sitemap_urls(
