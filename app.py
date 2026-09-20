@@ -20,12 +20,10 @@ st.markdown(
     """
     <style>
 
-    /* Tło aplikacji */
     .stApp {
         background-color: #f7f8fa;
     }
 
-    /* Ukrycie elementów Streamlit */
     #MainMenu {
         visibility: hidden;
     }
@@ -38,95 +36,33 @@ st.markdown(
         visibility: hidden;
     }
 
-    /* Główny kontener */
     .block-container {
         max-width: 1100px;
         padding-top: 60px;
         padding-bottom: 60px;
     }
 
-    /* Nagłówek */
-    .hero {
-        text-align: center;
-        margin-bottom: 50px;
-    }
-
     .hero-title {
         font-size: 44px;
         font-weight: 700;
         color: #111827;
-        margin-bottom: 12px;
+        text-align: center;
+        margin-bottom: 10px;
     }
 
     .hero-subtitle {
         font-size: 18px;
         color: #6b7280;
-    }
-
-    /* Kafelki */
-    .tool-card {
-        background-color: #ffffff;
-        border: 1px solid #e5e7eb;
-        border-radius: 18px;
-        padding: 30px;
-        min-height: 220px;
-        margin-bottom: 20px;
-        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.04);
-    }
-
-    .tool-icon {
-        font-size: 36px;
-        margin-bottom: 15px;
-    }
-
-    .tool-title {
-        font-size: 22px;
-        font-weight: 700;
-        color: #111827;
-        margin-bottom: 10px;
-    }
-
-    .tool-description {
-        font-size: 15px;
-        line-height: 1.6;
-        color: #6b7280;
-        margin-bottom: 18px;
-    }
-
-    .status-available {
-        display: inline-block;
-        padding: 5px 10px;
-        border-radius: 20px;
-        background-color: #ecfdf5;
-        color: #047857;
-        font-size: 12px;
-        font-weight: 600;
-    }
-
-    .status-soon {
-        display: inline-block;
-        padding: 5px 10px;
-        border-radius: 20px;
-        background-color: #f3f4f6;
-        color: #6b7280;
-        font-size: 12px;
-        font-weight: 600;
+        text-align: center;
+        margin-bottom: 50px;
     }
 
     /* Przyciski */
     .stButton > button {
         width: 100%;
         border-radius: 10px;
-        border: 1px solid #d1d5db;
-        background-color: #ffffff;
-        color: #111827;
-        font-weight: 600;
         min-height: 42px;
-    }
-
-    .stButton > button:hover {
-        border-color: #111827;
-        color: #111827;
+        font-weight: 600;
     }
 
     </style>
@@ -140,89 +76,68 @@ st.markdown(
 # --------------------------------------------------
 
 st.markdown(
-    """
-    <div class="hero">
-        <div class="hero-title">SEO Tools AI</div>
-        <div class="hero-subtitle">
-            Proste narzędzia SEO wspierane przez sztuczną inteligencję
-        </div>
-    </div>
-    """,
+    '<div class="hero-title">SEO Tools AI</div>',
+    unsafe_allow_html=True
+)
+
+st.markdown(
+    '<div class="hero-subtitle">'
+    'Proste narzędzia SEO wspierane przez sztuczną inteligencję'
+    '</div>',
     unsafe_allow_html=True
 )
 
 
 # --------------------------------------------------
-# PIERWSZY RZĄD KAFELKÓW
+# PIERWSZY RZĄD
 # --------------------------------------------------
 
 col1, col2 = st.columns(2)
 
 
 # --------------------------------------------------
-# KAFEL 1 — LINKOWANIE
+# LINKOWANIE WEWNĘTRZNE
 # --------------------------------------------------
 
 with col1:
 
-    st.markdown(
-        """
-        <div class="tool-card">
-            <div class="tool-icon">🔗</div>
+    with st.container(border=True):
 
-            <div class="tool-title">
-                Linkowanie wewnętrzne
-            </div>
+        st.markdown("## 🔗 Linkowanie wewnętrzne")
 
-            <div class="tool-description">
-                Znajdź naturalne miejsca w artykule,
-                w których warto dodać linki do innych
-                stron w Twoim serwisie.
-            </div>
+        st.write(
+            "Znajdź naturalne miejsca w artykule, "
+            "w których warto dodać linki do innych "
+            "stron w Twoim serwisie."
+        )
 
-            <span class="status-available">
-                DOSTĘPNE
-            </span>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+        st.success("DOSTĘPNE")
 
-    if st.button(
-        "Otwórz narzędzie →",
-        key="internal_links"
-    ):
-        st.session_state["page"] = "internal_links"
-        st.rerun()
+        if st.button(
+            "Otwórz narzędzie →",
+            key="internal_links",
+            use_container_width=True
+        ):
+            st.session_state["page"] = "internal_links"
+            st.rerun()
 
 
 # --------------------------------------------------
-# KAFEL 2 — AUDYT
+# AUDYT SEO
 # --------------------------------------------------
 
 with col2:
 
-    st.markdown(
-        """
-        <div class="tool-card">
-            <div class="tool-icon">🔍</div>
+    with st.container(border=True):
 
-            <div class="tool-title">
-                Audyt SEO
-            </div>
+        st.markdown("## 🔍 Audyt SEO")
 
-            <div class="tool-description">
-                Sprawdź najważniejsze elementy techniczne
-                i on-page swojej strony.
-            </div>
+        st.write(
+            "Sprawdź najważniejsze elementy techniczne "
+            "i on-page swojej strony."
+        )
 
-            <span class="status-soon">
-                WKRÓTCE
-            </span>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+        st.info("WKRÓTCE")
 
 
 # --------------------------------------------------
@@ -233,58 +148,36 @@ col3, col4 = st.columns(2)
 
 
 # --------------------------------------------------
-# KAFEL 3 — ANALIZA TREŚCI
+# ANALIZA TREŚCI
 # --------------------------------------------------
 
 with col3:
 
-    st.markdown(
-        """
-        <div class="tool-card">
-            <div class="tool-icon">📝</div>
+    with st.container(border=True):
 
-            <div class="tool-title">
-                Analiza treści
-            </div>
+        st.markdown("## 📝 Analiza treści")
 
-            <div class="tool-description">
-                Analizuj treść pod kątem tematów,
-                nagłówków, semantyki i potencjału SEO.
-            </div>
+        st.write(
+            "Analizuj treść pod kątem tematów, "
+            "nagłówków, semantyki i potencjału SEO."
+        )
 
-            <span class="status-soon">
-                WKRÓTCE
-            </span>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+        st.info("WKRÓTCE")
 
 
 # --------------------------------------------------
-# KAFEL 4 — ANALIZA STRONY
+# ANALIZA STRONY
 # --------------------------------------------------
 
 with col4:
 
-    st.markdown(
-        """
-        <div class="tool-card">
-            <div class="tool-icon">📊</div>
+    with st.container(border=True):
 
-            <div class="tool-title">
-                Analiza strony
-            </div>
+        st.markdown("## 📊 Analiza strony")
 
-            <div class="tool-description">
-                Zbierz najważniejsze informacje o stronie
-                i znajdź elementy wymagające optymalizacji.
-            </div>
+        st.write(
+            "Zbierz najważniejsze informacje o stronie "
+            "i znajdź elementy wymagające optymalizacji."
+        )
 
-            <span class="status-soon">
-                WKRÓTCE
-            </span>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+        st.info("WKRÓTCE")
