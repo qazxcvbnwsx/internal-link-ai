@@ -130,7 +130,9 @@ IGNORED_URL_WORDS = {
 
 def normalize_text(text):
     """
-    Normalizuje tekst.
+    Normalizuje tekst:
+    - małe litery,
+    - usuwa polskie znaki diakrytyczne.
     """
 
     text = text.lower()
@@ -167,7 +169,8 @@ def normalize_token(token):
 
 def tokenize_text(text):
     """
-    Zwraca znormalizowane słowa.
+    Zwraca znormalizowane słowa
+    bez stopwords.
     """
 
     normalized = normalize_text(
@@ -196,39 +199,66 @@ def tokenize_text(text):
     return tokens
 
 
-def tokenize_with_surface(text):
+def extract_surface_words(text):
     """
-    Zwraca:
-        (znormalizowane_słowo, oryginalne_słowo)
+    Pobiera słowa z zachowaniem ich
+    oryginalnej formy i kolejności.
+
+    Przykład:
+
+        "Książki o lesbijkach"
+
+    daje:
+
+        [
+            ("ksiazki", "Książki"),
+            ("o", "o"),
+            ("lesbijkach", "lesbijkach")
+        ]
+
     """
 
-    raw_tokens = re.findall(
+    raw_words = re.findall(
         r"[A-Za-zĄąĆćĘęŁłŃńÓóŚśŹźŻż0-9]+",
         text
     )
 
     result = []
 
-    for raw_token in raw_tokens:
+    for word in raw_words:
 
         normalized = normalize_token(
-            raw_token
+            word
         )
 
-        if len(normalized) < 4:
-            continue
-
-        if normalized in STOPWORDS:
+        if not normalized:
             continue
 
         result.append(
             (
                 normalized,
-                raw_token
+                word
             )
         )
 
     return result
+
+
+def is_meaningful_token(
+    token
+):
+    """
+    Sprawdza, czy słowo ma znaczenie
+    przy dopasowaniu tematycznym.
+    """
+
+    if len(token) < 4:
+        return False
+
+    if token in STOPWORDS:
+        return False
+
+    return True
 
 
 def tokens_are_similar(
@@ -237,6 +267,12 @@ def tokens_are_similar(
 ):
     """
     Proste sprawdzenie podobieństwa słów.
+
+    Pozwala uwzględnić podstawowe odmiany,
+    np.:
+        okular
+        okulary
+        okularach
     """
 
     if token_a == token_b:
@@ -258,216 +294,173 @@ def tokens_are_similar(
     )
 
 
-def _extract_phrase_candidates(
+def _extract_exact_phrases_from_text(
+    text,
+    source_weight=2
+):
+    """
+    Tworzy wyłącznie rzeczywiste frazy
+    występujące jako ciąg kolejnych słów
+    w tekście.
+
+    Nie usuwa stopwords przed budowaniem frazy.
+
+    Dzięki temu:
+
+        "Książki o lesbijkach"
+
+    pozostaje:
+
+        "Książki o lesbijkach"
+
+    a nie:
+
+        "Książki lesbijkach"
+
+    """
+
+    words = extract_surface_words(
+        text
+    )
+
+    phrases = []
+
+    if len(words) < 2:
+        return phrases
+
+    # Frazy 2-, 3- i 4-wyrazowe.
+    for phrase_length in [
+        2,
+        3,
+        4,
+    ]:
+
+        for start in range(
+            len(words) - phrase_length + 1
+        ):
+
+            phrase_words = words[
+                start:start + phrase_length
+            ]
+
+            display_text = " ".join(
+                word[1]
+                for word in phrase_words
+            )
+
+            normalized_tokens = [
+                word[0]
+                for word in phrase_words
+            ]
+
+            meaningful_tokens = [
+                token
+                for token in normalized_tokens
+                if is_meaningful_token(
+                    token
+                )
+            ]
+
+            # Fraza musi mieć przynajmniej
+            # dwa znaczące słowa.
+            if len(meaningful_tokens) < 2:
+                continue
+
+            # Odrzucamy bardzo krótkie frazy
+            # składające się tylko z przypadkowych słów.
+            if len(display_text) < 8:
+                continue
+
+            phrases.append(
+                {
+                    "text": display_text,
+                    "tokens": normalized_tokens,
+                    "meaningful_tokens": meaningful_tokens,
+                    "weight": source_weight,
+                }
+            )
+
+    return phrases
+
+
+def _extract_heading_phrases(
     soup
 ):
     """
-    Tworzy potencjalne frazy z artykułu.
+    Pobiera rzeczywiste frazy z nagłówków.
+
+    Zachowujemy dokładne słowa występujące
+    w nagłówku.
     """
 
     phrases = []
 
-    # -------------------------------------------------
-    # NAGŁÓWKI
-    # -------------------------------------------------
-
-    for heading in soup.find_all(
+    headings = soup.find_all(
         [
             "h1",
             "h2",
             "h3",
             "h4",
         ]
-    ):
+    )
 
-        heading_text = " ".join(
+    for heading in headings:
+
+        text = " ".join(
             heading.get_text(
                 " ",
                 strip=True
             ).split()
         )
 
-        tokens = tokenize_with_surface(
-            heading_text
-        )
-
-        if not tokens:
+        if not text:
             continue
 
-        # Cały nagłówek
-        if len(tokens) >= 2:
-
-            phrases.append(
-                {
-                    "text": " ".join(
-                        item[1]
-                        for item in tokens
-                    ),
-                    "tokens": [
-                        item[0]
-                        for item in tokens
-                    ],
-                    "weight": 10,
-                }
-            )
-
-        # 2-gramy
-        for i in range(
-            len(tokens) - 1
-        ):
-
-            phrase_tokens = [
-                tokens[i],
-                tokens[i + 1]
-            ]
-
-            phrases.append(
-                {
-                    "text": " ".join(
-                        item[1]
-                        for item in phrase_tokens
-                    ),
-                    "tokens": [
-                        item[0]
-                        for item in phrase_tokens
-                    ],
-                    "weight": 8,
-                }
-            )
-
-        # 3-gramy
-        for i in range(
-            len(tokens) - 2
-        ):
-
-            phrase_tokens = [
-                tokens[i],
-                tokens[i + 1],
-                tokens[i + 2]
-            ]
-
-            phrases.append(
-                {
-                    "text": " ".join(
-                        item[1]
-                        for item in phrase_tokens
-                    ),
-                    "tokens": [
-                        item[0]
-                        for item in phrase_tokens
-                    ],
-                    "weight": 9,
-                }
-            )
-
-    # -------------------------------------------------
-    # TREŚĆ
-    # -------------------------------------------------
-
-    body_counter = Counter()
-    body_phrases = {}
-
-    paragraphs = soup.find_all(
-        [
-            "p",
-            "li",
-            "blockquote",
-        ]
-    )
-
-    for paragraph in paragraphs:
-
-        paragraph_text = " ".join(
-            paragraph.get_text(
-                " ",
-                strip=True
-            ).split()
+        # Cały nagłówek, jeżeli nie jest
+        # przesadnie długi.
+        heading_words = extract_surface_words(
+            text
         )
 
-        tokens = tokenize_with_surface(
-            paragraph_text
-        )
-
-        if not tokens:
-            continue
-
-        # 2-gramy
-        for i in range(
-            len(tokens) - 1
+        if (
+            2 <= len(heading_words) <= 8
         ):
 
-            phrase_tokens = [
-                tokens[i],
-                tokens[i + 1]
+            meaningful_tokens = [
+                token
+                for token, _surface
+                in heading_words
+                if is_meaningful_token(
+                    token
+                )
             ]
 
-            normalized_phrase = tuple(
-                item[0]
-                for item in phrase_tokens
+            if len(meaningful_tokens) >= 2:
+
+                phrases.append(
+                    {
+                        "text": " ".join(
+                            word[1]
+                            for word in heading_words
+                        ),
+                        "tokens": [
+                            word[0]
+                            for word in heading_words
+                        ],
+                        "meaningful_tokens": (
+                            meaningful_tokens
+                        ),
+                        "weight": 10,
+                    }
+                )
+
+        # Dodatkowo krótsze dokładne frazy
+        # występujące wewnątrz nagłówka.
+        phrases.extend(
+            _extract_exact_phrases_from_text(
+                text,
+                source_weight=8
             )
-
-            surface_phrase = " ".join(
-                item[1]
-                for item in phrase_tokens
-            )
-
-            body_counter[
-                normalized_phrase
-            ] += 1
-
-            body_phrases[
-                normalized_phrase
-            ] = surface_phrase
-
-        # 3-gramy
-        for i in range(
-            len(tokens) - 2
-        ):
-
-            phrase_tokens = [
-                tokens[i],
-                tokens[i + 1],
-                tokens[i + 2]
-            ]
-
-            normalized_phrase = tuple(
-                item[0]
-                for item in phrase_tokens
-            )
-
-            surface_phrase = " ".join(
-                item[1]
-                for item in phrase_tokens
-            )
-
-            body_counter[
-                normalized_phrase
-            ] += 1
-
-            body_phrases[
-                normalized_phrase
-            ] = surface_phrase
-
-    for phrase_tokens, count in (
-        body_counter.most_common(80)
-    ):
-
-        if count < 1:
-            continue
-
-        phrases.append(
-            {
-                "text": body_phrases[
-                    phrase_tokens
-                ],
-                "tokens": list(
-                    phrase_tokens
-                ),
-                "weight": min(
-                    6,
-                    2 + count
-                ),
-            }
         )
 
     return phrases
@@ -503,12 +496,83 @@ def _remove_duplicate_phrases(
     return result
 
 
+def _extract_article_phrases(
+    article_html
+):
+    """
+    Tworzy listę rzeczywistych fraz
+    występujących w artykule.
+
+    Frazy są budowane:
+        - z nagłówków,
+        - z akapitów,
+        - z list,
+        - z blockquote.
+
+    Zawsze zachowują rzeczywistą
+    kolejność słów z tekstu.
+    """
+
+    soup = BeautifulSoup(
+        article_html,
+        "lxml"
+    )
+
+    phrases = []
+
+    # -------------------------------------------------
+    # NAGŁÓWKI
+    # -------------------------------------------------
+
+    phrases.extend(
+        _extract_heading_phrases(
+            soup
+        )
+    )
+
+    # -------------------------------------------------
+    # TREŚĆ
+    # -------------------------------------------------
+
+    content_elements = soup.find_all(
+        [
+            "p",
+            "li",
+            "blockquote",
+        ]
+    )
+
+    for element in content_elements:
+
+        text = " ".join(
+            element.get_text(
+                " ",
+                strip=True
+            ).split()
+        )
+
+        if not text:
+            continue
+
+        phrases.extend(
+            _extract_exact_phrases_from_text(
+                text,
+                source_weight=4
+            )
+        )
+
+    return _remove_duplicate_phrases(
+        phrases
+    )
+
+
 def extract_article_keywords(
     article_html,
     max_keywords=40
 ):
     """
-    Wyciąga najważniejsze słowa z artykułu.
+    Wyciąga najważniejsze słowa
+    z artykułu.
     """
 
     soup = BeautifulSoup(
@@ -518,6 +582,7 @@ def extract_article_keywords(
 
     counter = Counter()
 
+    # Zwykły tekst
     body_text = soup.get_text(
         " ",
         strip=True
@@ -529,6 +594,7 @@ def extract_article_keywords(
 
         counter[token] += 1
 
+    # Nagłówki mają większą wagę
     for heading in soup.find_all(
         [
             "h1",
@@ -637,20 +703,40 @@ def _phrase_matches_url(
     url_tokens
 ):
     """
-    Sprawdza, ile słów frazy
-    pasuje do URL.
+    Sprawdza dopasowanie znaczących słów
+    z rzeczywistej frazy do URL.
+
+    Wszystkie znaczące słowa frazy muszą
+    znaleźć dopasowanie w URL.
+
+    Dzięki temu np.:
+
+        "Książki o lesbijkach"
+
+    może pasować do:
+
+        /ksiazki-o-lesbijkach/
+
+    ale:
+
+        "Kategorii książki lesbijkach"
+
+    nie zostanie utworzone, jeśli taki
+    ciąg nie istnieje w artykule.
     """
 
-    phrase_tokens = phrase[
-        "tokens"
+    meaningful_tokens = phrase[
+        "meaningful_tokens"
     ]
 
-    if not phrase_tokens:
+    if not meaningful_tokens:
         return 0
 
     matched = 0
 
-    for phrase_token in phrase_tokens:
+    for phrase_token in meaningful_tokens:
+
+        token_found = False
 
         for url_token in url_tokens:
 
@@ -659,8 +745,16 @@ def _phrase_matches_url(
                 url_token
             ):
 
-                matched += 1
+                token_found = True
                 break
+
+        if token_found:
+
+            matched += 1
+
+        else:
+
+            return 0
 
     return matched
 
@@ -671,7 +765,8 @@ def _score_url_and_phrases(
     keyword_weights
 ):
     """
-    Oblicza wynik URL i jego dopasowane frazy.
+    Oblicza dopasowanie URL do rzeczywistych
+    fraz występujących w artykule.
     """
 
     url_tokens = _url_tokens(
@@ -680,7 +775,10 @@ def _score_url_and_phrases(
 
     if not url_tokens:
 
-        return 0, []
+        return (
+            0,
+            []
+        )
 
     score = 0
 
@@ -701,25 +799,22 @@ def _score_url_and_phrases(
             continue
 
         phrase_length = len(
-            phrase["tokens"]
+            phrase["meaningful_tokens"]
         )
 
-        if (
-            phrase_length >= 2
-            and matched_count == phrase_length
-        ):
+        # Im więcej pełnych znaczących słów
+        # frazy pasuje do URL, tym większy wynik.
+        phrase_score = (
+            phrase["weight"]
+            * matched_count
+            * matched_count
+        )
 
-            phrase_score = (
-                phrase["weight"]
-                * matched_count
-                * 2
-            )
+        # Dodatkowa premia za frazę wielowyrazową.
+        if phrase_length >= 2:
 
-        else:
-
-            phrase_score = (
-                phrase["weight"]
-                * matched_count
+            phrase_score += (
+                phrase_length * 4
             )
 
         score += phrase_score
@@ -732,7 +827,7 @@ def _score_url_and_phrases(
         )
 
     # -------------------------------------------------
-    # SŁOWA
+    # POJEDYNCZE SŁOWA
     # -------------------------------------------------
 
     for url_token in set(
@@ -749,7 +844,7 @@ def _score_url_and_phrases(
 
                 best_word_score = max(
                     best_word_score,
-                    weight * 3
+                    weight * 2
                 )
 
             elif tokens_are_similar(
@@ -765,10 +860,11 @@ def _score_url_and_phrases(
         score += best_word_score
 
     # -------------------------------------------------
-    # UNIKALNE FRAZY DANEGO URL-A
+    # USUŃ DUPLIKATY FRAZ DLA TEGO URL
     # -------------------------------------------------
 
     unique_phrases = []
+
     seen = set()
 
     for phrase in sorted(
@@ -876,10 +972,11 @@ def select_candidate_urls(
     """
     Wybiera najbardziej pasujące URL-e.
 
-    Każda fraza może pojawić się
-    w tabeli tylko przy jednym URL-u.
+    Każda fraza występująca w artykule
+    może zostać przypisana tylko do
+    jednego URL-a.
 
-    Nie odwiedza żadnego URL-a.
+    Żaden URL nie jest odwiedzany.
     """
 
     if not urls:
@@ -898,7 +995,7 @@ def select_candidate_urls(
         )
 
     # -------------------------------------------------
-    # ISTNIEJĄCE LINKI
+    # USUNIĘCIE ISTNIEJĄCYCH LINKÓW
     # -------------------------------------------------
 
     (
@@ -934,20 +1031,11 @@ def select_candidate_urls(
         ] = weight
 
     # -------------------------------------------------
-    # FRAZY
+    # RZECZYWISTE FRAZY Z ARTYKUŁU
     # -------------------------------------------------
 
-    soup = BeautifulSoup(
-        article_html,
-        "lxml"
-    )
-
-    phrases = _extract_phrase_candidates(
-        soup
-    )
-
-    phrases = _remove_duplicate_phrases(
-        phrases
+    phrases = _extract_article_phrases(
+        article_html
     )
 
     # -------------------------------------------------
@@ -973,7 +1061,9 @@ def select_candidate_urls(
                 "score": score,
                 "index": index,
                 "url": url,
-                "matched_phrases": matched_phrases,
+                "matched_phrases": (
+                    matched_phrases
+                ),
             }
         )
 
@@ -995,10 +1085,11 @@ def select_candidate_urls(
     ]
 
     # -------------------------------------------------
-    # PRZYPISANIE FRAZ TYLKO DO JEDNEGO URL-A
+    # KAŻDA FRAZA TYLKO RAZ
     # -------------------------------------------------
 
     used_phrases = set()
+
     selected = []
 
     for item in matched_urls:
@@ -1020,8 +1111,6 @@ def select_candidate_urls(
                 phrase
             )
 
-        # URL bez żadnej nowej frazy
-        # pomijamy na tym etapie.
         if not unique_phrases:
             continue
 
@@ -1047,32 +1136,9 @@ def select_candidate_urls(
             break
 
     # -------------------------------------------------
-    # JEŚLI MAMY MNIEJ NIŻ 30
-    # DODAJEMY POZOSTAŁE URL-E BEZ POWTARZANIA FRAZ
+    # JEŻELI NIE MA 30 DOPASOWANYCH URL-I
+    # NIE TWORZYMY SZTUCZNYCH FRAZ
     # -------------------------------------------------
-
-    if len(selected) < limit:
-
-        selected_indexes = {
-            item["index"]
-            for item in selected
-        }
-
-        for item in scored_urls:
-
-            if len(selected) >= limit:
-                break
-
-            if item["index"] in selected_indexes:
-                continue
-
-            selected.append(
-                item.copy()
-            )
-
-            selected_indexes.add(
-                item["index"]
-            )
 
     selected_urls = [
         item["url"]
@@ -1114,7 +1180,9 @@ def select_candidate_urls(
             removed_existing_links
         ),
         "keywords": keywords,
-        "candidate_matches": candidate_matches,
+        "candidate_matches": (
+            candidate_matches
+        ),
     }
 
     return (
