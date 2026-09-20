@@ -29,10 +29,19 @@ def download_page(url):
 
 def download_pages(
     urls,
-    max_workers=25
+    max_workers=25,
+    progress_callback=None
 ):
     """
     Pobiera wiele stron równocześnie.
+
+    progress_callback, jeśli podany, jest wywoływany
+    po zakończeniu pobierania każdej strony:
+
+        progress_callback(
+            completed,
+            total
+        )
 
     Zwraca:
         pages - lista słowników:
@@ -42,7 +51,8 @@ def download_pages(
                 "error": None
             }
 
-    albo przy błędzie:
+        albo przy błędzie:
+
             {
                 "url": "...",
                 "html": None,
@@ -51,6 +61,9 @@ def download_pages(
     """
 
     pages = []
+
+    total = len(urls)
+    completed = 0
 
     def fetch(url):
 
@@ -95,5 +108,14 @@ def download_pages(
             pages.append(
                 result
             )
+
+            completed += 1
+
+            if progress_callback:
+
+                progress_callback(
+                    completed,
+                    total
+                )
 
     return pages
