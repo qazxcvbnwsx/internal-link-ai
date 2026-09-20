@@ -1,84 +1,60 @@
 import streamlit as st
 import requests
 from bs4 import BeautifulSoup
+from urllib.parse import urlparse
 
 
-# --------------------------------------------------
+# =========================================================
 # KONFIGURACJA
-# --------------------------------------------------
+# =========================================================
 
 st.set_page_config(
     page_title="SEO Tools AI",
     page_icon="🔗",
-    layout="wide",
-    initial_sidebar_state="collapsed"
+    layout="wide"
 )
 
 
-# --------------------------------------------------
+# =========================================================
 # CSS
-# --------------------------------------------------
+# =========================================================
 
 st.markdown(
     """
     <style>
 
-    .stApp {
-        background-color: #f7f8fa;
+    .main {
+        background: #f7f8fa;
     }
 
-    #MainMenu {
-        visibility: hidden;
+    .hero {
+        padding: 45px 0 35px 0;
     }
 
-    footer {
-        visibility: hidden;
-    }
-
-    header {
-        visibility: hidden;
-    }
-
-    .block-container {
-        max-width: 1100px;
-        padding-top: 60px;
-        padding-bottom: 60px;
-    }
-
-    .hero-title {
-        font-size: 44px;
+    .hero h1 {
+        font-size: 42px;
         font-weight: 700;
-        color: #111827;
-        text-align: center;
         margin-bottom: 10px;
+        color: #111827;
     }
 
-    .hero-subtitle {
+    .hero p {
         font-size: 18px;
         color: #6b7280;
-        text-align: center;
-        margin-bottom: 50px;
+        margin-top: 0;
     }
 
     .page-title {
-        font-size: 38px;
+        font-size: 32px;
         font-weight: 700;
         color: #111827;
         margin-bottom: 8px;
     }
 
     .page-description {
-        font-size: 17px;
         color: #6b7280;
-        margin-bottom: 40px;
-    }
-
-    .section-title {
-        font-size: 20px;
-        font-weight: 650;
-        color: #111827;
-        margin-top: 25px;
-        margin-bottom: 15px;
+        font-size: 16px;
+        margin-bottom: 30px;
     }
 
     .article-preview {
@@ -96,65 +72,41 @@ st.markdown(
     }
 
     .article-preview h1 {
-        font-size: 32px;
-        line-height: 1.25;
+        font-size: 30px;
         margin-top: 0;
-        margin-bottom: 25px;
+        margin-bottom: 20px;
         color: #111827;
     }
 
     .article-preview h2 {
         font-size: 24px;
-        line-height: 1.35;
-        margin-top: 35px;
-        margin-bottom: 15px;
+        margin-top: 30px;
+        margin-bottom: 12px;
         color: #111827;
     }
 
     .article-preview h3 {
         font-size: 20px;
-        line-height: 1.4;
-        margin-top: 28px;
-        margin-bottom: 12px;
+        margin-top: 25px;
+        margin-bottom: 10px;
         color: #111827;
     }
 
     .article-preview h4 {
         font-size: 18px;
-        line-height: 1.4;
-        margin-top: 24px;
-        margin-bottom: 10px;
+        margin-top: 20px;
+        margin-bottom: 8px;
         color: #111827;
     }
 
     .article-preview p {
-        margin-bottom: 18px;
+        margin-bottom: 16px;
     }
 
     .article-preview ul,
     .article-preview ol {
-        margin-bottom: 20px;
-        padding-left: 28px;
-    }
-
-    .article-preview li {
-        margin-bottom: 8px;
-    }
-
-    .article-preview strong {
-        font-weight: 700;
-    }
-
-    .article-preview a {
-        color: #2563eb;
-        text-decoration: underline;
-    }
-
-    .stButton > button {
-        width: 100%;
-        border-radius: 10px;
-        min-height: 42px;
-        font-weight: 600;
+        margin-bottom: 18px;
+        padding-left: 25px;
     }
 
     </style>
@@ -163,18 +115,198 @@ st.markdown(
 )
 
 
-# --------------------------------------------------
-# NAWIGACJA
-# --------------------------------------------------
+# =========================================================
+# FUNKCJA POMOCNICZA
+# =========================================================
 
-if "page" not in st.session_state:
-    st.session_state["page"] = "home"
+def clean_container(container):
+    """
+    Usuwa z kontenera elementy techniczne, nawigacyjne
+    i elementy, które nie są właściwą treścią.
+    """
+
+    # Usuwamy elementy, których nie chcemy analizować
+    for tag in container.find_all([
+        "script",
+        "style",
+        "noscript",
+        "template",
+        "svg",
+        "iframe",
+        "canvas",
+        "form",
+        "nav",
+        "footer",
+        "header",
+        "aside"
+    ]):
+        tag.decompose()
+
+    # Usuwamy elementy ukryte
+    for tag in container.find_all(
+        style=lambda value: value and (
+            "display:none" in value.replace(" ", "").lower()
+            or "visibility:hidden" in value.replace(" ", "").lower()
+        )
+    ):
+        tag.decompose()
+
+    # Usuwamy elementy typu title/meta
+    for tag in container.find_all([
+        "title",
+        "meta",
+        "link"
+    ]):
+        tag.decompose()
+
+    return container
 
 
-# --------------------------------------------------
-# FUNKCJA: POBIERANIE TREŚCI
-# --------------------------------------------------
+# =========================================================
+# WYBÓR NAJLEPSZEGO KONTENERA TREŚCI
+# =========================================================
 
+def find_best_content_container(soup):
+
+    # Najpierw czyścimy dokument z oczywistych śmieci
+    for tag in soup.find_all([
+        "script",
+        "style",
+        "noscript",
+        "template",
+        "svg",
+        "iframe",
+        "canvas",
+        "form",
+        "nav",
+        "footer",
+        "header",
+        "aside"
+    ]):
+        tag.decompose()
+
+    candidates = []
+
+    # -----------------------------------------------------
+    # 1. Semantyczne kontenery
+    # -----------------------------------------------------
+
+    for selector in [
+        "article",
+        "main",
+        "[role='main']"
+    ]:
+
+        for element in soup.select(selector):
+
+            text = element.get_text(
+                " ",
+                strip=True
+            )
+
+            paragraphs = element.find_all("p")
+
+            headings = element.find_all([
+                "h1",
+                "h2",
+                "h3",
+                "h4"
+            ])
+
+            if len(text) >= 300:
+
+                candidates.append({
+                    "element": element,
+                    "text_length": len(text),
+                    "paragraphs": len(paragraphs),
+                    "headings": len(headings),
+                    "score": (
+                        len(text)
+                        + len(paragraphs) * 300
+                        + len(headings) * 100
+                    )
+                })
+
+    # -----------------------------------------------------
+    # 2. Szukamy kontenera zawierającego H1
+    # -----------------------------------------------------
+
+    h1 = soup.find("h1")
+
+    if h1:
+
+        parent = h1.parent
+
+        levels_checked = 0
+
+        while parent and parent.name not in [
+            "body",
+            "html"
+        ] and levels_checked < 8:
+
+            text = parent.get_text(
+                " ",
+                strip=True
+            )
+
+            paragraphs = parent.find_all("p")
+
+            headings = parent.find_all([
+                "h1",
+                "h2",
+                "h3",
+                "h4"
+            ])
+
+            if (
+                len(text) >= 500
+                and len(paragraphs) >= 2
+            ):
+
+                candidates.append({
+                    "element": parent,
+                    "text_length": len(text),
+                    "paragraphs": len(paragraphs),
+                    "headings": len(headings),
+                    "score": (
+                        len(text)
+                        + len(paragraphs) * 300
+                        + len(headings) * 100
+                    )
+                })
+
+            parent = parent.parent
+            levels_checked += 1
+
+    # -----------------------------------------------------
+    # 3. Jeżeli mamy kandydatów, wybieramy najlepszego
+    # -----------------------------------------------------
+
+    if candidates:
+
+        # Sortujemy po wyniku
+        candidates.sort(
+            key=lambda item: item["score"],
+            reverse=True
+        )
+
+        return candidates[0]["element"]
+
+    # -----------------------------------------------------
+    # 4. Ostateczny fallback
+    # -----------------------------------------------------
+
+    if soup.body:
+        return soup.body
+
+    return soup
+
+
+# =========================================================
+# POBIERANIE ARTYKUŁU
+# =========================================================
+
+@st.cache_data(ttl=3600)
 def extract_article_content(url):
 
     response = requests.get(
@@ -196,148 +328,29 @@ def extract_article_content(url):
         "html.parser"
     )
 
-    # --------------------------------------------------
-    # USUWAMY ELEMENTY TECHNICZNE
-    # --------------------------------------------------
+    # Znajdujemy właściwy kontener
+    content = find_best_content_container(
+        soup
+    )
 
-    for tag in soup.find_all([
-        "script",
-        "style",
-        "noscript",
-        "template",
-        "svg",
-        "iframe",
-        "form",
-        "nav",
-        "footer",
-        "header"
-    ]):
-        tag.decompose()
+    # Czyścimy go
+    content = clean_container(
+        content
+    )
 
-    # --------------------------------------------------
-    # SZUKAMY GŁÓWNEGO OBSZARU TREŚCI
-    # --------------------------------------------------
+    # -----------------------------------------------------
+    # BUDOWANIE CZYSTEJ WERSJI HTML
+    # -----------------------------------------------------
 
-    content = None
+    article_html = ""
 
-    # Najpierw próbujemy znaleźć semantyczne elementy
-    # najczęściej wykorzystywane dla głównej treści.
+    # Przechodzimy po elementach w kolejności,
+    # w której występują w artykule.
+    #
+    # Dzięki temu nie tracimy relacji:
+    # H2 -> P -> P -> H2 -> P itd.
 
-    selectors = [
-        "main",
-        "article",
-        "[role='main']"
-    ]
-
-    for selector in selectors:
-
-        candidate = soup.select_one(selector)
-
-        if candidate:
-
-            # Sprawdzamy, czy element rzeczywiście
-            # zawiera sensowną ilość tekstu.
-
-            text_length = len(
-                candidate.get_text(
-                    " ",
-                    strip=True
-                )
-            )
-
-            if text_length > 300:
-
-                content = candidate
-                break
-
-    # --------------------------------------------------
-    # JEŻELI NIE ZNALEŹLIŚMY MAIN/ARTICLE
-    # --------------------------------------------------
-
-    if content is None:
-
-        # Szukamy elementu zawierającego H1.
-
-        h1 = soup.find("h1")
-
-        if h1:
-
-            # Próbujemy znaleźć jego sensowny kontener.
-
-            candidate = h1.parent
-
-            while candidate and candidate.name not in [
-                "body",
-                "html"
-            ]:
-
-                text_length = len(
-                    candidate.get_text(
-                        " ",
-                        strip=True
-                    )
-                )
-
-                if text_length > 500:
-
-                    content = candidate
-
-                    # Nie idziemy za wysoko.
-                    # Jeżeli rodzic jest bardzo duży,
-                    # zatrzymujemy się.
-
-                    if text_length > 20000:
-                        break
-
-                candidate = candidate.parent
-
-    # --------------------------------------------------
-    # OSTATECZNY FALLBACK
-    # --------------------------------------------------
-
-    if content is None:
-
-        content = soup.body
-
-    if content is None:
-
-        raise ValueError(
-            "Nie udało się znaleźć treści strony."
-        )
-
-    # --------------------------------------------------
-    # USUWAMY ELEMENTY WEWNĄTRZ GŁÓWNEGO KONTENERA
-    # --------------------------------------------------
-
-    for tag in content.find_all([
-        "script",
-        "style",
-        "noscript",
-        "template",
-        "svg",
-        "iframe",
-        "form",
-        "nav",
-        "footer",
-        "header"
-    ]):
-        tag.decompose()
-
-    # --------------------------------------------------
-    # USUWAMY META I TITLE
-    # --------------------------------------------------
-
-    for tag in content.find_all([
-        "title",
-        "meta"
-    ]):
-        tag.decompose()
-
-    # --------------------------------------------------
-    # WYBIERAMY TYLKO ELEMENTY TREŚCIOWE
-    # --------------------------------------------------
-
-    allowed_tags = [
+    for element in content.find_all([
         "h1",
         "h2",
         "h3",
@@ -345,23 +358,11 @@ def extract_article_content(url):
         "p",
         "ul",
         "ol"
-    ]
+    ]):
 
-    elements = content.find_all(
-        allowed_tags
-    )
-
-    # --------------------------------------------------
-    # BUDUJEMY CZYSTY HTML ARTYKUŁU
-    # --------------------------------------------------
-
-    article_html = ""
-
-    for element in elements:
-
-        # ----------------------------------------------
+        # -----------------------------------------------
         # NAGŁÓWKI
-        # ----------------------------------------------
+        # -----------------------------------------------
 
         if element.name in [
             "h1",
@@ -383,9 +384,9 @@ def extract_article_content(url):
                     f"</{element.name}>"
                 )
 
-        # ----------------------------------------------
+        # -----------------------------------------------
         # AKAPITY
-        # ----------------------------------------------
+        # -----------------------------------------------
 
         elif element.name == "p":
 
@@ -400,19 +401,16 @@ def extract_article_content(url):
                     f"<p>{text}</p>"
                 )
 
-        # ----------------------------------------------
+        # -----------------------------------------------
         # LISTY
-        # ----------------------------------------------
+        # -----------------------------------------------
 
         elif element.name in [
             "ul",
             "ol"
         ]:
 
-            # Tworzymy listę od nowa,
-            # żeby nie pobierać śmieciowego HTML.
-
-            list_html = ""
+            list_items = []
 
             for li in element.find_all(
                 "li",
@@ -426,21 +424,21 @@ def extract_article_content(url):
 
                 if text:
 
-                    list_html += (
+                    list_items.append(
                         f"<li>{text}</li>"
                     )
 
-            if list_html:
+            if list_items:
 
                 article_html += (
                     f"<{element.name}>"
-                    f"{list_html}"
-                    f"</{element.name}>"
+                    + "".join(list_items)
+                    + f"</{element.name}>"
                 )
 
-    # --------------------------------------------------
-    # SPRAWDZENIE WYNIKU
-    # --------------------------------------------------
+    # -----------------------------------------------------
+    # SPRAWDZENIE REZULTATU
+    # -----------------------------------------------------
 
     clean_text = BeautifulSoup(
         article_html,
@@ -453,27 +451,181 @@ def extract_article_content(url):
     if len(clean_text) < 200:
 
         raise ValueError(
-            "Nie udało się znaleźć wystarczającej ilości "
-            "treści artykułu."
+            "Nie udało się znaleźć "
+            "wystarczającej ilości treści artykułu."
         )
 
     return article_html
 
 
-# --------------------------------------------------
-# STRONA: LINKOWANIE WEWNĘTRZNE
-# --------------------------------------------------
+# =========================================================
+# POBIERANIE SITEMAPY
+# =========================================================
+
+@st.cache_data(ttl=3600)
+def get_sitemap_urls(sitemap_url):
+
+    response = requests.get(
+        sitemap_url,
+        timeout=20,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/153.0.0.0 Safari/537.36"
+            )
+        }
+    )
+
+    response.raise_for_status()
+
+    soup = BeautifulSoup(
+        response.content,
+        "xml"
+    )
+
+    # -----------------------------------------------------
+    # SITEMAP INDEX
+    # -----------------------------------------------------
+
+    sitemap_tags = soup.find_all(
+        "sitemap"
+    )
+
+    if sitemap_tags:
+
+        sitemap_links = []
+
+        for sitemap in sitemap_tags:
+
+            loc = sitemap.find("loc")
+
+            if loc:
+
+                url = loc.get_text(
+                    strip=True
+                )
+
+                if url:
+
+                    sitemap_links.append(
+                        url
+                    )
+
+        all_urls = []
+
+        for child_sitemap in sitemap_links:
+
+            try:
+
+                child_response = requests.get(
+                    child_sitemap,
+                    timeout=20,
+                    headers={
+                        "User-Agent": (
+                            "Mozilla/5.0 "
+                            "(Windows NT 10.0; Win64; x64) "
+                            "AppleWebKit/537.36 "
+                            "(KHTML, like Gecko) "
+                            "Chrome/153.0.0.0 "
+                            "Safari/537.36"
+                        )
+                    }
+                )
+
+                child_response.raise_for_status()
+
+                child_soup = BeautifulSoup(
+                    child_response.content,
+                    "xml"
+                )
+
+                for url_tag in child_soup.find_all(
+                    "url"
+                ):
+
+                    loc = url_tag.find("loc")
+
+                    if loc:
+
+                        url = loc.get_text(
+                            strip=True
+                        )
+
+                        if url:
+
+                            all_urls.append(
+                                url
+                            )
+
+            except Exception:
+                continue
+
+        return list(
+            dict.fromkeys(all_urls)
+        )
+
+    # -----------------------------------------------------
+    # ZWYKŁA SITEMAPA
+    # -----------------------------------------------------
+
+    urls = []
+
+    for url_tag in soup.find_all(
+        "url"
+    ):
+
+        loc = url_tag.find("loc")
+
+        if loc:
+
+            url = loc.get_text(
+                strip=True
+            )
+
+            if url:
+
+                urls.append(
+                    url
+                )
+
+    return list(
+        dict.fromkeys(urls)
+    )
+
+
+# =========================================================
+# DOMENA
+# =========================================================
+
+def get_domain(url):
+
+    parsed = urlparse(url)
+
+    return parsed.netloc.lower().replace(
+        "www.",
+        ""
+    )
+
+
+# =========================================================
+# NAWIGACJA
+# =========================================================
+
+if "page" not in st.session_state:
+
+    st.session_state["page"] = "home"
+
+
+# =========================================================
+# INTERNAL LINKING
+# =========================================================
 
 if st.session_state["page"] == "internal_links":
 
-    if st.button("← Wróć do narzędzi"):
-
-        st.session_state["page"] = "home"
-        st.rerun()
-
     st.markdown(
         '<div class="page-title">'
-        '🔗 Linkowanie wewnętrzne'
+        '🔗 Internal Linking AI'
         '</div>',
         unsafe_allow_html=True
     )
@@ -486,12 +638,9 @@ if st.session_state["page"] == "internal_links":
         unsafe_allow_html=True
     )
 
-    st.markdown(
-        '<div class="section-title">'
-        '1. Tekst do analizy'
-        '</div>',
-        unsafe_allow_html=True
-    )
+    # -----------------------------------------------------
+    # ŹRÓDŁO ARTYKUŁU
+    # -----------------------------------------------------
 
     mode = st.radio(
         "Wybierz źródło tekstu:",
@@ -509,264 +658,324 @@ if st.session_state["page"] == "internal_links":
 
         article_url = st.text_input(
             "URL artykułu",
-            placeholder=(
-                "https://twojastrona.pl/blog/artykul/"
-            )
+            placeholder="https://twojastrona.pl/artykul/"
         )
 
     else:
 
         article_text = st.text_area(
-            "Wklej cały tekst artykułu",
-            height=350,
-            placeholder=(
-                "Wklej tutaj treść artykułu..."
-            )
+            "Wklej treść artykułu",
+            height=250,
+            placeholder="Wklej tutaj cały tekst artykułu..."
         )
 
-    st.markdown(
-        '<div class="section-title">'
-        '2. Sitemap'
-        '</div>',
-        unsafe_allow_html=True
-    )
+    # -----------------------------------------------------
+    # SITEMAP
+    # -----------------------------------------------------
 
     sitemap_url = st.text_input(
         "URL sitemap",
-        placeholder=(
-            "https://twojastrona.pl/sitemap.xml"
-        )
+        placeholder="https://twojastrona.pl/sitemap.xml"
     )
 
-    st.markdown("")
+    # -----------------------------------------------------
+    # ANALIZA
+    # -----------------------------------------------------
 
-    if st.button(
-        "🔍 Analizuj linkowanie",
+    analyze = st.button(
+        "🔍 Analizuj",
         type="primary",
         use_container_width=True
-    ):
+    )
 
-        if (
-            mode == "Mam już artykuł na stronie"
-            and not article_url
-        ):
+    if analyze:
 
-            st.error(
-                "Podaj URL artykułu."
-            )
+        # -------------------------------------------------
+        # WALIDACJA
+        # -------------------------------------------------
 
-        elif (
-            mode == "Artykuł nie jest jeszcze opublikowany"
-            and not article_text
-        ):
+        if mode == "Mam już artykuł na stronie":
 
-            st.error(
-                "Wklej treść artykułu."
-            )
+            if not article_url.strip():
 
-        elif not sitemap_url:
+                st.error(
+                    "Podaj URL artykułu."
+                )
 
-            st.error(
-                "Podaj adres sitemap."
-            )
+                st.stop()
 
         else:
 
-            # ------------------------------------------
-            # POBIERANIE ARTYKUŁU Z URL
-            # ------------------------------------------
+            if not article_text.strip():
 
-            if mode == "Mam już artykuł na stronie":
+                st.error(
+                    "Wklej treść artykułu."
+                )
 
-                try:
+                st.stop()
+
+        if not sitemap_url.strip():
+
+            st.error(
+                "Podaj URL sitemap."
+            )
+
+            st.stop()
+
+        # -------------------------------------------------
+        # ARTYKUŁ Z URL
+        # -------------------------------------------------
+
+        if mode == "Mam już artykuł na stronie":
+
+            try:
+
+                with st.spinner(
+                    "Pobieram artykuł..."
+                ):
 
                     article_html = extract_article_content(
                         article_url
                     )
 
-                    st.success(
-                        "Strona została pobrana."
+                st.success(
+                    "Strona została pobrana."
+                )
+
+            except Exception as e:
+
+                st.error(
+                    f"Nie udało się pobrać artykułu: {e}"
+                )
+
+                st.stop()
+
+        # -------------------------------------------------
+        # ARTYKUŁ WKLEJONY
+        # -------------------------------------------------
+
+        else:
+
+            paragraphs = article_text.split(
+                "\n"
+            )
+
+            article_html = ""
+
+            for paragraph in paragraphs:
+
+                paragraph = paragraph.strip()
+
+                if paragraph:
+
+                    article_html += (
+                        f"<p>{paragraph}</p>"
                     )
 
-                    st.markdown(
-                        "### Podgląd treści artykułu"
-                    )
+            st.success(
+                "Tekst został wczytany."
+            )
 
-                    st.markdown(
-                        f'<div class="article-preview">'
-                        f'{article_html}'
-                        f'</div>',
-                        unsafe_allow_html=True
-                    )
+        # -------------------------------------------------
+        # PODGLĄD
+        # -------------------------------------------------
 
-                except requests.RequestException as e:
+        st.markdown(
+            "### Podgląd treści artykułu"
+        )
 
-                    st.error(
-                        f"Nie udało się pobrać strony: {e}"
-                    )
+        st.markdown(
+            f"""
+            <div class="article-preview">
+                {article_html}
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
-                except Exception as e:
+        # -------------------------------------------------
+        # SITEMAP
+        # -------------------------------------------------
 
-                    st.error(
-                        f"Wystąpił błąd podczas analizy: {e}"
-                    )
+        try:
 
-            # ------------------------------------------
-            # ARTYKUŁ WKLEJONY RĘCZNIE
-            # ------------------------------------------
+            with st.spinner(
+                "Analizuję sitemapę..."
+            ):
+
+                sitemap_urls = get_sitemap_urls(
+                    sitemap_url
+                )
+
+            if not sitemap_urls:
+
+                st.warning(
+                    "Nie znaleziono żadnych URL-i w sitemapie."
+                )
 
             else:
 
                 st.success(
-                    "Treść została przyjęta."
+                    f"Znaleziono {len(sitemap_urls)} adresów URL."
+                )
+
+                sitemap_domain = get_domain(
+                    sitemap_url
                 )
 
                 st.markdown(
-                    "### Podgląd treści artykułu"
+                    "### Znalezione podstrony"
                 )
 
-                formatted_text = (
-                    article_text
-                    .replace("\n\n", "</p><p>")
-                    .replace("\n", "<br>")
+                st.caption(
+                    f"Domena: {sitemap_domain}"
                 )
 
-                st.markdown(
-                    '<div class="article-preview">'
-                    f'<p>{formatted_text}</p>'
-                    '</div>',
-                    unsafe_allow_html=True
-                )
+                display_urls = sitemap_urls[:100]
+
+                for index, url in enumerate(
+                    display_urls,
+                    start=1
+                ):
+
+                    st.markdown(
+                        f"**{index}.** {url}"
+                    )
+
+                if len(sitemap_urls) > 100:
+
+                    st.info(
+                        f"Wyświetlam pierwsze 100 z "
+                        f"{len(sitemap_urls)} znalezionych URL-i."
+                    )
+
+        except Exception as e:
+
+            st.error(
+                f"Nie udało się pobrać sitemap: {e}"
+            )
+
+    # -----------------------------------------------------
+    # POWRÓT
+    # -----------------------------------------------------
+
+    st.markdown("---")
+
+    if st.button(
+        "← Wróć do narzędzi"
+    ):
+
+        st.session_state["page"] = "home"
+
+        st.rerun()
 
     st.stop()
 
 
-# --------------------------------------------------
+# =========================================================
 # STRONA GŁÓWNA
-# --------------------------------------------------
+# =========================================================
 
 st.markdown(
-    '<div class="hero-title">'
-    'SEO Tools AI'
-    '</div>',
+    """
+    <div class="hero">
+        <h1>SEO Tools AI</h1>
+        <p>
+            Proste narzędzia SEO wykorzystujące AI
+            do codziennej pracy.
+        </p>
+    </div>
+    """,
     unsafe_allow_html=True
 )
 
-st.markdown(
-    '<div class="hero-subtitle">'
-    'Proste narzędzia SEO wspierane przez sztuczną inteligencję'
-    '</div>',
-    unsafe_allow_html=True
-)
+
+# =========================================================
+# KAFELKI
+# =========================================================
+
+col1, col2, col3 = st.columns(3)
 
 
-# --------------------------------------------------
-# PIERWSZY RZĄD
-# --------------------------------------------------
-
-col1, col2 = st.columns(2)
-
-
-# --------------------------------------------------
-# LINKOWANIE WEWNĘTRZNE
-# --------------------------------------------------
+# =========================================================
+# INTERNAL LINKING
+# =========================================================
 
 with col1:
 
     with st.container(border=True):
 
         st.markdown(
-            "## 🔗 Linkowanie wewnętrzne"
+            "### 🔗 Internal Linking AI"
         )
 
         st.write(
-            "Znajdź naturalne miejsca w artykule, "
-            "w których warto dodać linki do innych "
-            "stron w Twoim serwisie."
+            "Znajdź naturalne miejsca na "
+            "linki wewnętrzne w artykule."
         )
 
-        st.success(
-            "DOSTĘPNE"
+        st.caption(
+            "Analiza treści + sitemap + AI"
         )
 
         if st.button(
-            "Otwórz narzędzie →",
-            key="internal_links",
+            "Otwórz narzędzie",
+            key="internal_links_button",
             use_container_width=True
         ):
 
             st.session_state["page"] = "internal_links"
+
             st.rerun()
 
 
-# --------------------------------------------------
-# AUDYT SEO
-# --------------------------------------------------
+# =========================================================
+# SEO AUDIT
+# =========================================================
 
 with col2:
 
     with st.container(border=True):
 
         st.markdown(
-            "## 🔍 Audyt SEO"
+            "### 🔎 SEO Audit"
         )
 
         st.write(
-            "Sprawdź najważniejsze elementy techniczne "
-            "i on-page swojej strony."
+            "Szybka analiza podstawowych "
+            "elementów SEO strony."
+        )
+
+        st.caption(
+            "Wkrótce"
         )
 
         st.info(
-            "WKRÓTCE"
+            "Narzędzie będzie dostępne wkrótce."
         )
 
 
-# --------------------------------------------------
-# DRUGI RZĄD
-# --------------------------------------------------
-
-col3, col4 = st.columns(2)
-
-
-# --------------------------------------------------
-# ANALIZA TREŚCI
-# --------------------------------------------------
+# =========================================================
+# CONTENT ANALYSIS
+# =========================================================
 
 with col3:
 
     with st.container(border=True):
 
         st.markdown(
-            "## 📝 Analiza treści"
+            "### ✍️ Content Analysis"
         )
 
         st.write(
-            "Analizuj treść pod kątem tematów, "
-            "nagłówków, semantyki i potencjału SEO."
+            "Analiza treści pod kątem SEO, "
+            "struktury i tematów."
+        )
+
+        st.caption(
+            "Wkrótce"
         )
 
         st.info(
-            "WKRÓTCE"
-        )
-
-
-# --------------------------------------------------
-# ANALIZA STRONY
-# --------------------------------------------------
-
-with col4:
-
-    with st.container(border=True):
-
-        st.markdown(
-            "## 📊 Analiza strony"
-        )
-
-        st.write(
-            "Zbierz najważniejsze informacje o stronie "
-            "i znajdź elementy wymagające optymalizacji."
-        )
-
-        st.info(
-            "WKRÓTCE"
+            "Narzędzie będzie dostępne wkrótce."
         )
