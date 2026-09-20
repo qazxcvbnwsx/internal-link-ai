@@ -193,57 +193,6 @@ def show_internal_linking():
     ]
 
     # -------------------------------------------------
-    # TRYB ANALIZY
-    # -------------------------------------------------
-
-    st.markdown(
-        "### Tryb analizy"
-    )
-
-    analysis_mode = st.radio(
-        "Jak szeroko analizować sitemapę?",
-        [
-            "⚡ Szybka analiza",
-            "🧠 Pełna analiza serwisu",
-        ],
-        horizontal=True
-    )
-
-    if analysis_mode == "⚡ Szybka analiza":
-
-        max_urls = st.selectbox(
-            "Maksymalna liczba URL-i",
-            [
-                100,
-                250,
-                500,
-                1000,
-            ],
-            index=1,
-            help=(
-                "Ograniczenie liczby URL-i analizowanych "
-                "z sitemap. Nie są pobierane strony."
-            )
-        )
-
-    else:
-
-        candidate_limit = st.selectbox(
-            "Maksymalna liczba kandydatów",
-            [
-                100,
-                200,
-                300,
-                500,
-            ],
-            index=2,
-            help=(
-                "Cała sitemap zostanie przeanalizowana "
-                "bez wchodzenia na strony."
-            )
-        )
-
-    # -------------------------------------------------
     # ANALIZUJ
     # -------------------------------------------------
 
@@ -323,6 +272,10 @@ def show_internal_linking():
                 st.success(
                     "Strona artykułu została pobrana."
                 )
+
+                # -----------------------------------------
+                # DIAGNOSTYKA
+                # -----------------------------------------
 
                 with st.expander(
                     "Diagnostyka pobranej treści"
@@ -509,42 +462,15 @@ def show_internal_linking():
                 f"{sitemap_time:.2f} s"
             )
 
+            # -------------------------------------------------
+            # WAŻNA INFORMACJA
+            # -------------------------------------------------
+
             st.info(
                 "ℹ️ Z sitemap pobierane są wyłącznie "
                 "adresy URL. Narzędzie nie odwiedza "
                 "stron znajdujących się pod tymi adresami."
             )
-
-            # -------------------------------------------------
-            # WYBÓR URL-I
-            # -------------------------------------------------
-
-            if analysis_mode == "⚡ Szybka analiza":
-
-                urls_to_analyze = sitemap_urls[
-                    :int(max_urls)
-                ]
-
-                st.info(
-                    f"Szybka analiza: "
-                    f"wybrano "
-                    f"{len(urls_to_analyze)} "
-                    f"URL-i."
-                )
-
-            else:
-
-                # Na tym etapie nie pobieramy stron.
-                # Pełna analiza oznacza przejrzenie
-                # wszystkich URL-i z sitemap.
-                urls_to_analyze = sitemap_urls
-
-                st.info(
-                    f"Pełna analiza: "
-                    f"przeanalizowanych zostanie "
-                    f"{len(urls_to_analyze)} "
-                    f"URL-i z sitemap."
-                )
 
             # -------------------------------------------------
             # PODGLĄD URL-I
@@ -559,17 +485,10 @@ def show_internal_linking():
                 "bez odwiedzania stron."
             )
 
-            for url in urls_to_analyze[:100]:
+            for url in sitemap_urls:
 
                 st.write(
                     url
-                )
-
-            if len(urls_to_analyze) > 100:
-
-                st.caption(
-                    f"Pokazano pierwsze 100 z "
-                    f"{len(urls_to_analyze)} URL-i."
                 )
 
         except Exception as e:
