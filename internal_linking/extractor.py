@@ -21,7 +21,7 @@ def clean_text(text):
 
 
 # =========================================================
-# ELEMENTY, KTÓRE NIE SĄ TREŚCIĄ ARTYKUŁU
+# ELEMENTY, KTÓRE NIE SĄ TREŚCIĄ
 # =========================================================
 
 def remove_unwanted_elements(soup):
@@ -44,6 +44,8 @@ def remove_unwanted_elements(soup):
         ".share-buttons",
         ".cookie",
         ".cookies",
+        ".breadcrumbs",
+        ".breadcrumb"
     ]
 
     for selector in selectors:
@@ -54,95 +56,81 @@ def remove_unwanted_elements(soup):
 
 
 # =========================================================
-# ZNALEZIENIE GŁÓWNEJ TREŚCI
+# ZNALEZIENIE GŁÓWNEGO OBSZARU STRONY
 # =========================================================
 
 def find_main_content(soup):
 
     selectors = [
 
+        # Najbardziej typowe dla WordPressa
+        "article",
+        "main",
+
         # WordPress
-        "article .entry-content",
-        "article .post-content",
-        "article .page-content",
-        "article .article-content",
-
-        # Elementor
-        ".elementor-widget-theme-post-content",
-        ".elementor-widget-text-editor",
-
-        # Gutenberg
-        ".wp-block-post-content",
-
-        # Popularne klasy
         ".entry-content",
         ".post-content",
         ".page-content",
         ".article-content",
         ".single-content",
 
-        # Ogólne
-        "article",
-        "main",
+        # Elementor
+        ".elementor-widget-theme-post-content",
+
+        # Gutenberg
+        ".wp-block-post-content"
     ]
 
     candidates = []
 
     for selector in selectors:
 
-        elements = soup.select(
-            selector
-        )
+        for element in soup.select(selector):
 
-        for element in elements:
-
-            text = element.get_text(
-                " ",
-                strip=True
+            text_length = len(
+                element.get_text(
+                    " ",
+                    strip=True
+                )
             )
 
-            if len(text) >= 300:
+            if text_length >= 300:
 
                 candidates.append(
-                    element
+                    (
+                        element,
+                        text_length
+                    )
                 )
 
     if not candidates:
         return None
 
     # =====================================================
-    # WYBIERAMY NAJBARDZIEJ PRAWDOPODOBNY KONTENER
+    # WYBIERAMY NAJWIĘKSZY KONTENER
     # =====================================================
 
-    # Nie zawsze największy element jest najlepszy,
-    # dlatego preferujemy bardziej szczegółowe selektory.
+    # Ważne:
+    # nie wybieramy pierwszego pasującego elementu.
+    #
+    # Przy Elementorze treść może być podzielona
+    # na kilka kolumn. Największy kontener nadrzędny
+    # daje większą szansę na zachowanie całego artykułu.
 
-    for selector in selectors:
-
-        for element in candidates:
-
-            if element in soup.select(selector):
-
-                return element
-
-    return max(
-        candidates,
-        key=lambda element: len(
-            element.get_text(
-                " ",
-                strip=True
-            )
-        )
+    candidates.sort(
+        key=lambda item: item[1],
+        reverse=True
     )
+
+    return candidates[0][0]
 
 
 # =========================================================
-# CZYSZCZENIE KONTENERA
+# CZYSZCZENIE GŁÓWNEJ TREŚCI
 # =========================================================
 
 def clean_content(container):
 
-    # Tworzymy niezależną kopię
     content = BeautifulSoup(
         str(container),
         "html.parser"
@@ -153,7 +141,7 @@ def clean_content(container):
     )
 
     # =====================================================
-    # USUWAMY ELEMENTY, KTÓRE MOGĄ BYĆ WEWNĄTRZ ARTYKUŁU
+    # USUWANIE ELEMENTÓW NIEBĘDĄCYCH TREŚCIĄ
     # =====================================================
 
     unwanted_classes = [
@@ -165,7 +153,7 @@ def clean_content(container):
         "comment",
         "newsletter",
         "breadcrumb",
-        "breadcrumbs",
+        "breadcrumbs"
     ]
 
     for class_name in unwanted_classes:
@@ -177,7 +165,24 @@ def clean_content(container):
             element.decompose()
 
     # =====================================================
-    # CZYŚCIMY TEKST
+    # USUWANIE PUSTYCH ELEMENTOROWYCH KONTENERÓW
+    # =====================================================
+
+    for element in content.find_all(
+        ["div", "section"]
+    ):
+
+        text = element.get_text(
+            " ",
+            strip=True
+        )
+
+        if not text:
+
+            element.decompose()
+
+    # =====================================================
+    # CZYSZCZENIE TEKSTU
     # =====================================================
 
     for element in content.find_all(
@@ -206,8 +211,8 @@ def clean_content(container):
 
             continue
 
-        # Usuwamy zawartość HTML wewnątrz elementu,
-        # ale zachowujemy sam element, np. H3.
+        # Zachowujemy element HTML
+        # np. H2/H3/P
         element.clear()
 
         element.append(
@@ -223,10 +228,6 @@ def clean_content(container):
 
 def extract_article_content(url):
 
-    # =====================================================
-    # POBRANIE STRONY
-    # =====================================================
-
     raw_html = download_page(
         url
     )
@@ -241,7 +242,15 @@ def extract_article_content(url):
     )
 
     # =====================================================
-    # ZNALEZIENIE TREŚCI
+    # USUWANIE ŚMIECI PRZED SZUKANIEM TREŚCI
+    # =====================================================
+
+    remove_unwanted_elements(
+        soup
+    )
+
+    # =====================================================
+    # GŁÓWNY KONTENER
     # =====================================================
 
     main_content = find_main_content(
@@ -256,7 +265,7 @@ def extract_article_content(url):
         )
 
     # =====================================================
-    # OCZYSZCZENIE TREŚCI
+    # CZYSZCZENIE
     # =====================================================
 
     content = clean_content(
@@ -264,7 +273,7 @@ def extract_article_content(url):
     )
 
     # =====================================================
-    # TEKST DO WALIDACJI
+    # TEKST
     # =====================================================
 
     clean_article_text = content.get_text(
