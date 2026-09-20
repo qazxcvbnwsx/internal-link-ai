@@ -1,8 +1,17 @@
 from bs4 import BeautifulSoup
 
 
-# Elementy, które z dużym prawdopodobieństwem nie należą
-# do głównej treści strony.
+CONTENT_TAGS = {
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "p",
+    "li",
+    "blockquote",
+}
+
+
 EXCLUDED_TAGS = {
     "script",
     "style",
@@ -18,12 +27,10 @@ EXCLUDED_TAGS = {
 }
 
 
-# Słowa często występujące w klasach i ID elementów,
-# które nie są główną treścią artykułu.
 EXCLUDED_KEYWORDS = {
     "menu",
-    "nav",
     "navigation",
+    "nav",
     "header",
     "footer",
     "sidebar",
@@ -51,104 +58,79 @@ EXCLUDED_KEYWORDS = {
 }
 
 
-CONTENT_TAGS = {
-    "h1",
-    "h2",
-    "h3",
-    "h4",
-    "p",
-    "li",
-    "blockquote",
-}
-
-
 def detect_cms(html):
     """
-    Próbuje rozpoznać CMS na podstawie charakterystycznych
-    elementów znajdujących się w kodzie HTML.
-
-    Rozpoznanie CMS jest tylko wskazówką.
-    Ekstrakcja treści nie będzie od niego zależna.
+    Próbuje rozpoznać CMS.
+    CMS jest tylko informacją pomocniczą.
+    Ekstrakcja treści nie zależy od konkretnego CMS-a.
     """
 
     html_lower = html.lower()
 
-    # WordPress
     if (
         "wp-content" in html_lower
         or "wp-includes" in html_lower
-        or 'name="generator" content="wordpress' in html_lower
+        or "wordpress" in html_lower
     ):
         return "wordpress"
 
-    # PrestaShop
-    if (
-        "prestashop" in html_lower
-        or "prestashop" in html_lower
-    ):
+    if "prestashop" in html_lower:
         return "prestashop"
 
-    # Shoper
     if (
         "shoper" in html_lower
         or "shoparena" in html_lower
     ):
         return "shoper"
 
-    # Shopify
     if (
         "cdn.shopify.com" in html_lower
         or "shopify" in html_lower
     ):
         return "shopify"
 
-    # Joomla
     if (
         "/media/system/" in html_lower
         or "joomla" in html_lower
     ):
         return "joomla"
 
-    # Webflow
     if (
         "webflow.css" in html_lower
         or "webflow.js" in html_lower
-        or "webflow" in html_lower
     ):
         return "webflow"
 
     return "unknown"
 
 
-def _get_element_identifier(element):
+def _identifier(element):
     """
-    Zwraca połączoną wartość class + id elementu.
+    Łączy class i id elementu.
     """
 
     classes = element.get("class", [])
     element_id = element.get("id", "")
 
     if isinstance(classes, list):
-        classes_text = " ".join(classes)
-    else:
-        classes_text = str(classes)
+        classes = " ".join(classes)
 
-    return f"{classes_text} {element_id}".lower()
+    return f"{classes} {element_id}".lower()
 
 
 def _is_excluded(element):
     """
-    Sprawdza, czy element lub jego rodzic znajduje się
-    w obszarze, którego nie chcemy analizować.
+    Sprawdza element oraz jego rodziców.
     """
 
     current = element
 
-    while current is not None and getattr(current, "name", None):
-        if current.name in EXCLUDED_TAGS:
+    while current is not None:
+
+        if getattr(current, "name", None) in EXCLUDED_TAGS:
             return True
 
-        identifier = _get_element_identifier(current)
+        identifier = _identifier(current)
 
         for keyword in EXCLUDED_KEYWORDS:
             if keyword in identifier:
@@ -159,206 +141,145 @@ def _is_excluded(element):
     return False
 
 
-def _get_text_length(element):
+def _clean_text(element):
     """
-    Zwraca długość tekstu znajdującego się w elemencie.
+    Pobiera czysty tekst elementu.
     """
 
-    return len(
-        element.get_text(" ", strip=True)
+    return " ".join(
+        element.get_text(
+            " ",
+            strip=True
+        ).split()
     )
 
 
-def _get_link_text_length(element):
+def _is_valid_block(element):
     """
-    Zwraca długość tekstu znajdującego się wewnątrz linków.
+    Sprawdza, czy element może być fragmentem
+    głównej treści.
     """
 
-    length = 0
+    if element.name not in CONTENT_TAGS:
+        return False
 
-    for link in element.find_all("a"):
-        length += len(
-            link.get_text(" ", strip=True)
-        )
+    if _is_excluded(element):
+        return False
 
-    return length
+    text = _clean_text(element)
+
+    if not text:
+        return False
+
+    # Bardzo krótkie elementy zwykle nie są
+    # właściwą treścią artykułu.
+    if len(text) < 20:
+        return False
+
+    return True
 
 
-def _get_semantic_blocks(element):
+def _get_blocks(soup):
     """
-    Pobiera wszystkie znaczące elementy treści
-    znajdujące się wewnątrz danego kontenera.
+    Pobiera wszystkie potencjalne bloki treści
+    z całego dokumentu.
+
+    Nie wybiera jednego kontenera.
     """
 
     blocks = []
 
-    for child in element.find_all(CONTENT_TAGS):
+    for element in soup.find_all(CONTENT_TAGS):
 
-        if _is_excluded(child):
+        if not _is_valid_block(element):
             continue
 
-        text = child.get_text(" ", strip=True)
+        # Jeżeli LI zawiera P, nie chcemy pobierać
+        # P osobno, ponieważ powstałby duplikat.
+        if element.name == "p":
+            parent_li = element.find_parent("li")
 
-        if not text:
-            continue
+            if parent_li is not None:
+                continue
 
-        # Pomijamy bardzo krótkie elementy,
-        # które zazwyczaj są przyciskami lub pojedynczymi etykietami.
-        if len(text) < 20:
-            continue
-
-        blocks.append(child)
+        blocks.append(element)
 
     return blocks
 
 
-def _score_container(element):
+def _block_score(element):
     """
-    Oblicza wynik dla potencjalnego kontenera głównej treści.
-    Im wyższy wynik, tym bardziej element przypomina główną
-    część artykułu.
+    Ocenia pojedynczy blok tekstu.
+
+    Wyższy wynik oznacza większe prawdopodobieństwo,
+    że jest częścią właściwego artykułu.
     """
-
-    if _is_excluded(element):
-        return -999999
-
-    blocks = _get_semantic_blocks(element)
-
-    if not blocks:
-        return -999999
-
-    text_length = sum(
-        _get_text_length(block)
-        for block in blocks
-    )
-
-    headings = sum(
-        1
-        for block in blocks
-        if block.name in {"h1", "h2", "h3", "h4"}
-    )
-
-    paragraphs = sum(
-        1
-        for block in blocks
-        if block.name in {"p", "li", "blockquote"}
-    )
-
-    link_text_length = _get_link_text_length(element)
-
-    if text_length == 0:
-        return -999999
-
-    link_ratio = link_text_length / text_length
 
     score = 0
 
-    # Duża ilość treści jest dobrym sygnałem.
-    score += min(text_length / 100, 100)
+    text = _clean_text(element)
 
-    # Większa liczba bloków tekstowych zwiększa wynik.
-    score += min(len(blocks) * 3, 100)
+    if element.name == "h1":
+        score += 15
 
-    # Nagłówki są mocnym sygnałem artykułu.
-    score += headings * 15
+    elif element.name == "h2":
+        score += 12
 
-    # Paragrafy również.
-    score += min(paragraphs * 2, 60)
+    elif element.name == "h3":
+        score += 10
 
-    # Duża ilość tekstu będącego linkami sugeruje menu/sidebar.
-    if link_ratio > 0.7:
-        score -= 100
+    elif element.name == "h4":
+        score += 8
 
-    elif link_ratio > 0.5:
-        score -= 50
+    elif element.name == "p":
+        score += 5
+
+    elif element.name == "li":
+        score += 3
+
+    elif element.name == "blockquote":
+        score += 5
+
+    # Dłuższe fragmenty są częściej właściwą treścią.
+    if len(text) >= 100:
+        score += 5
+
+    if len(text) >= 250:
+        score += 5
+
+    if len(text) >= 500:
+        score += 5
+
+    # Element znajdujący się wewnątrz article/main
+    # dostaje dodatkowy sygnał.
+    parent = element.parent
+
+    while parent is not None:
+
+        if getattr(parent, "name", None) == "article":
+            score += 15
+            break
+
+        if getattr(parent, "name", None) == "main":
+            score += 15
+            break
+
+        parent = parent.parent
 
     return score
 
 
-def find_content_containers(soup):
+def _remove_duplicates(blocks):
     """
-    Znajduje potencjalne kontenery głównej treści.
-
-    Nie zakładamy konkretnego CMS-a.
+    Usuwa identyczne fragmenty tekstu.
     """
 
-    candidates = []
-
-    # Najpierw sprawdzamy semantyczne elementy HTML.
-    for tag_name in ["article", "main"]:
-        for element in soup.find_all(tag_name):
-            score = _score_container(element)
-
-            if score > 0:
-                candidates.append(
-                    (score, element)
-                )
-
-    # Następnie sprawdzamy section/div.
-    for tag_name in ["section", "div"]:
-        for element in soup.find_all(tag_name):
-
-            # Bardzo małe elementy nie mają sensu jako
-            # główny kontener artykułu.
-            if _get_text_length(element) < 200:
-                continue
-
-            score = _score_container(element)
-
-            if score > 0:
-                candidates.append(
-                    (score, element)
-                )
-
-    candidates.sort(
-        key=lambda item: item[0],
-        reverse=True
-    )
-
-    return candidates
-
-
-def extract_content_blocks(html):
-    """
-    Główna funkcja modułu.
-
-    Zwraca:
-        cms
-        blocks
-
-    blocks zawiera elementy H1-H4, P, LI i BLOCKQUOTE
-    w kolejności występowania w kodzie strony.
-    """
-
-    soup = BeautifulSoup(
-        html,
-        "lxml"
-    )
-
-    cms = detect_cms(html)
-
-    candidates = find_content_containers(soup)
-
-    if not candidates:
-        return cms, []
-
-    # Najlepszy znaleziony kontener.
-    best_container = candidates[0][1]
-
-    blocks = _get_semantic_blocks(
-        best_container
-    )
-
-    # Usuwamy duplikaty.
-    unique_blocks = []
+    result = []
     seen = set()
 
     for block in blocks:
 
-        text = block.get_text(
-            " ",
-            strip=True
-        )
+        text = _clean_text(block)
 
         key = (
             block.name,
@@ -369,6 +290,74 @@ def extract_content_blocks(html):
             continue
 
         seen.add(key)
-        unique_blocks.append(block)
+        result.append(block)
 
-    return cms, unique_blocks
+    return result
+
+
+def _find_content_region(blocks):
+    """
+    Próbuje określić, które fragmenty należą do głównej
+    treści bez wybierania jednego kontenera.
+
+    Wykorzystujemy sąsiedztwo bloków oraz obecność nagłówków.
+    """
+
+    if not blocks:
+        return []
+
+    scores = [
+        _block_score(block)
+        for block in blocks
+    ]
+
+    # Minimalny próg.
+    valid = []
+
+    for block, score in zip(blocks, scores):
+
+        if score >= 5:
+            valid.append(block)
+
+    if not valid:
+        return blocks
+
+    # Jeżeli mamy dużo prawidłowych bloków,
+    # zachowujemy ich kolejność z dokumentu.
+    return valid
+
+
+def extract_content_blocks(html):
+    """
+    Główna funkcja.
+
+    Zwraca:
+
+        cms
+        blocks
+
+    blocks zawiera elementy:
+
+        H1
+        H2
+        H3
+        H4
+        P
+        LI
+        BLOCKQUOTE
+    """
+
+    soup = BeautifulSoup(
+        html,
+        "lxml"
+    )
+
+    cms = detect_cms(html)
+
+    blocks = _get_blocks(soup)
+
+    blocks = _find_content_region(blocks)
+
+    blocks = _remove_duplicates(blocks)
+
+    return cms, blocks
