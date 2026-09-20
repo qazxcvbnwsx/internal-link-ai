@@ -7,54 +7,104 @@ from .crawler import USER_AGENT
 
 def _filter_urls(
     urls,
-    exclude_fragments=None
+    filter_mode="exclude",
+    filter_fragments=None
 ):
     """
-    Usuwa URL-e zawierające podane fragmenty.
+    Filtruje URL-e na podstawie fragmentów.
+
+    filter_mode:
+        exclude = wyklucz URL-e zawierające fragment
+        include = zostaw tylko URL-e zawierające fragment
 
     Zwraca:
         filtered_urls
-        excluded_count
+        filtered_out_count
     """
 
     unique_urls = list(
-        dict.fromkeys(urls)
+        dict.fromkeys(
+            urls
+        )
     )
 
-    if not exclude_fragments:
+    if not filter_fragments:
 
-        return unique_urls, 0
+        return (
+            unique_urls,
+            0
+        )
 
     fragments = [
         fragment.strip().lower()
-        for fragment in exclude_fragments
+        for fragment in filter_fragments
         if fragment.strip()
     ]
 
     if not fragments:
 
-        return unique_urls, 0
+        return (
+            unique_urls,
+            0
+        )
 
     filtered = []
-    excluded_count = 0
+    filtered_out_count = 0
 
     for url in unique_urls:
 
         url_lower = url.lower()
 
-        if any(
+        contains_fragment = any(
             fragment in url_lower
             for fragment in fragments
-        ):
-
-            excluded_count += 1
-            continue
-
-        filtered.append(
-            url
         )
 
-    return filtered, excluded_count
+        # ---------------------------------------------
+        # WYKLUCZ
+        # ---------------------------------------------
+
+        if filter_mode == "exclude":
+
+            if contains_fragment:
+
+                filtered_out_count += 1
+                continue
+
+            filtered.append(
+                url
+            )
+
+        # ---------------------------------------------
+        # TYLKO TE URL-E
+        # ---------------------------------------------
+
+        elif filter_mode == "include":
+
+            if contains_fragment:
+
+                filtered.append(
+                    url
+                )
+
+            else:
+
+                filtered_out_count += 1
+
+        # ---------------------------------------------
+        # BEZPIECZNY DOMYŚLNY TRYB
+        # ---------------------------------------------
+
+        else:
+
+            filtered.append(
+                url
+            )
+
+    return (
+        filtered,
+        filtered_out_count
+    )
 
 
 def find_sitemap_in_robots(page_url):
@@ -167,26 +217,22 @@ def find_sitemap_in_robots(page_url):
 
 def get_sitemap_urls(
     sitemap_url,
-    exclude_fragments=None,
+    filter_fragments=None,
+    filter_mode="exclude",
     progress_callback=None
 ):
     """
     Pobiera sitemapę lub sitemap index.
 
-    progress_callback:
-        funkcja wywoływana po pobraniu
-        każdego pliku sitemap:
-
-            progress_callback(
-                completed,
-                total
-            )
+    filter_mode:
+        exclude = wyklucz URL-e
+        include = zostaw tylko pasujące URL-e
 
     Zwraca:
 
         sitemap_urls
         total_urls
-        excluded_count
+        filtered_out_count
     """
 
     response = requests.get(
@@ -304,17 +350,19 @@ def get_sitemap_urls(
             unique_urls
         )
 
-        filtered_urls, excluded_count = (
-            _filter_urls(
-                unique_urls,
-                exclude_fragments
-            )
+        (
+            filtered_urls,
+            filtered_out_count
+        ) = _filter_urls(
+            unique_urls,
+            filter_mode=filter_mode,
+            filter_fragments=filter_fragments
         )
 
         return (
             filtered_urls,
             total_urls,
-            excluded_count
+            filtered_out_count
         )
 
     # -------------------------------------------------
@@ -360,15 +408,17 @@ def get_sitemap_urls(
         unique_urls
     )
 
-    filtered_urls, excluded_count = (
-        _filter_urls(
-            unique_urls,
-            exclude_fragments
-        )
+    (
+        filtered_urls,
+        filtered_out_count
+    ) = _filter_urls(
+        unique_urls,
+        filter_mode=filter_mode,
+        filter_fragments=filter_fragments
     )
 
     return (
         filtered_urls,
         total_urls,
-        excluded_count
+        filtered_out_count
     )
