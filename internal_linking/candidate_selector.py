@@ -130,9 +130,7 @@ IGNORED_URL_WORDS = {
 
 def normalize_text(text):
     """
-    Normalizuje tekst:
-    - małe litery,
-    - usuwa polskie znaki diakrytyczne.
+    Normalizuje tekst.
     """
 
     text = text.lower()
@@ -200,7 +198,7 @@ def tokenize_text(text):
 
 def tokenize_with_surface(text):
     """
-    Zwraca pary:
+    Zwraca:
         (znormalizowane_słowo, oryginalne_słowo)
     """
 
@@ -239,13 +237,6 @@ def tokens_are_similar(
 ):
     """
     Proste sprawdzenie podobieństwa słów.
-
-    Pozwala traktować np.:
-        okular
-        okulary
-        okularach
-
-    jako potencjalnie powiązane.
     """
 
     if token_a == token_b:
@@ -271,23 +262,13 @@ def _extract_phrase_candidates(
     soup
 ):
     """
-    Tworzy listę potencjalnych fraz z artykułu.
-
-    Największą wagę mają:
-        - H1
-        - H2
-        - H3
-        - H4
-
-    Następnie wykorzystywane są również
-    naturalne frazy 2- i 3-wyrazowe
-    z treści.
+    Tworzy potencjalne frazy z artykułu.
     """
 
     phrases = []
 
     # -------------------------------------------------
-    # FRAZY Z NAGŁÓWKÓW
+    # NAGŁÓWKI
     # -------------------------------------------------
 
     for heading in soup.find_all(
@@ -313,25 +294,19 @@ def _extract_phrase_candidates(
         if not tokens:
             continue
 
-        normalized_tokens = [
-            item[0]
-            for item in tokens
-        ]
-
-        surface_tokens = [
-            item[1]
-            for item in tokens
-        ]
-
-        # Cały nagłówek jako fraza
-        if len(surface_tokens) >= 2:
+        # Cały nagłówek
+        if len(tokens) >= 2:
 
             phrases.append(
                 {
                     "text": " ".join(
-                        surface_tokens
+                        item[1]
+                        for item in tokens
                     ),
-                    "tokens": normalized_tokens,
+                    "tokens": [
+                        item[0]
+                        for item in tokens
+                    ],
                     "weight": 10,
                 }
             )
@@ -386,8 +361,11 @@ def _extract_phrase_candidates(
             )
 
     # -------------------------------------------------
-    # FRAZY Z TREŚCI
+    # TREŚĆ
     # -------------------------------------------------
+
+    body_counter = Counter()
+    body_phrases = {}
 
     paragraphs = soup.find_all(
         [
@@ -396,10 +374,6 @@ def _extract_phrase_candidates(
             "blockquote",
         ]
     )
-
-    body_counter = Counter()
-
-    body_phrases = {}
 
     for paragraph in paragraphs:
 
@@ -416,16 +390,6 @@ def _extract_phrase_candidates(
 
         if not tokens:
             continue
-
-        normalized_tokens = [
-            item[0]
-            for item in tokens
-        ]
-
-        surface_tokens = [
-            item[1]
-            for item in tokens
-        ]
 
         # 2-gramy
         for i in range(
@@ -484,8 +448,8 @@ def _extract_phrase_candidates(
                 normalized_phrase
             ] = surface_phrase
 
-    for phrase_tokens, count in body_counter.most_common(
-        80
+    for phrase_tokens, count in (
+        body_counter.most_common(80)
     ):
 
         if count < 1:
@@ -544,7 +508,7 @@ def extract_article_keywords(
     max_keywords=40
 ):
     """
-    Zwraca najważniejsze słowa artykułu.
+    Wyciąga najważniejsze słowa z artykułu.
     """
 
     soup = BeautifulSoup(
@@ -673,8 +637,8 @@ def _phrase_matches_url(
     url_tokens
 ):
     """
-    Sprawdza, ile słów z frazy
-    pasuje do słów URL.
+    Sprawdza, ile słów frazy
+    pasuje do URL.
     """
 
     phrase_tokens = phrase[
@@ -707,8 +671,7 @@ def _score_url_and_phrases(
     keyword_weights
 ):
     """
-    Oblicza wynik URL oraz zwraca
-    pasujące frazy z artykułu.
+    Oblicza wynik URL i jego dopasowane frazy.
     """
 
     url_tokens = _url_tokens(
@@ -724,7 +687,7 @@ def _score_url_and_phrases(
     matched_phrases = []
 
     # -------------------------------------------------
-    # DOPASOWANIE FRAZ
+    # FRAZY
     # -------------------------------------------------
 
     for phrase in phrases:
@@ -741,7 +704,6 @@ def _score_url_and_phrases(
             phrase["tokens"]
         )
 
-        # Pełne dopasowanie frazy
         if (
             phrase_length >= 2
             and matched_count == phrase_length
@@ -770,7 +732,7 @@ def _score_url_and_phrases(
         )
 
     # -------------------------------------------------
-    # DODATKOWE DOPASOWANIE SŁÓW
+    # SŁOWA
     # -------------------------------------------------
 
     for url_token in set(
@@ -779,7 +741,9 @@ def _score_url_and_phrases(
 
         best_word_score = 0
 
-        for keyword, weight in keyword_weights.items():
+        for keyword, weight in (
+            keyword_weights.items()
+        ):
 
             if url_token == keyword:
 
@@ -801,7 +765,7 @@ def _score_url_and_phrases(
         score += best_word_score
 
     # -------------------------------------------------
-    # USUNIĘCIE POWTARZAJĄCYCH SIĘ FRAZ
+    # UNIKALNE FRAZY DANEGO URL-A
     # -------------------------------------------------
 
     unique_phrases = []
@@ -827,7 +791,10 @@ def _score_url_and_phrases(
             phrase
         )
 
-    return score, unique_phrases
+    return (
+        score,
+        unique_phrases
+    )
 
 
 def _normalize_url(
@@ -907,13 +874,12 @@ def select_candidate_urls(
     limit=30
 ):
     """
-    Wybiera 30 najbardziej pasujących URL-i.
+    Wybiera najbardziej pasujące URL-e.
+
+    Każda fraza może pojawić się
+    w tabeli tylko przy jednym URL-u.
 
     Nie odwiedza żadnego URL-a.
-
-    Analizuje wyłącznie:
-        - artykuł,
-        - URL-e z sitemap.
     """
 
     if not urls:
@@ -927,11 +893,12 @@ def select_candidate_urls(
                 "selected_urls": 0,
                 "removed_existing_links": 0,
                 "keywords": [],
+                "candidate_matches": [],
             }
         )
 
     # -------------------------------------------------
-    # USUNIĘCIE ISTNIEJĄCYCH LINKÓW
+    # ISTNIEJĄCE LINKI
     # -------------------------------------------------
 
     (
@@ -1027,15 +994,66 @@ def select_candidate_urls(
         if item["score"] > 0
     ]
 
-    selected = matched_urls[
-        :limit
-    ]
+    # -------------------------------------------------
+    # PRZYPISANIE FRAZ TYLKO DO JEDNEGO URL-A
+    # -------------------------------------------------
 
-    # Jeżeli mamy mniej niż 30
-    # dopasowanych URL-i, uzupełniamy listę.
+    used_phrases = set()
+    selected = []
+
+    for item in matched_urls:
+
+        unique_phrases = []
+
+        for phrase in item[
+            "matched_phrases"
+        ]:
+
+            phrase_key = normalize_text(
+                phrase["text"]
+            )
+
+            if phrase_key in used_phrases:
+                continue
+
+            unique_phrases.append(
+                phrase
+            )
+
+        # URL bez żadnej nowej frazy
+        # pomijamy na tym etapie.
+        if not unique_phrases:
+            continue
+
+        item_copy = item.copy()
+
+        item_copy[
+            "matched_phrases"
+        ] = unique_phrases
+
+        selected.append(
+            item_copy
+        )
+
+        for phrase in unique_phrases:
+
+            used_phrases.add(
+                normalize_text(
+                    phrase["text"]
+                )
+            )
+
+        if len(selected) >= limit:
+            break
+
+    # -------------------------------------------------
+    # JEŚLI MAMY MNIEJ NIŻ 30
+    # DODAJEMY POZOSTAŁE URL-E BEZ POWTARZANIA FRAZ
+    # -------------------------------------------------
+
     if len(selected) < limit:
 
-        selected_ids = {
+        selected_indexes = {
             item["index"]
             for item in selected
         }
@@ -1045,14 +1063,14 @@ def select_candidate_urls(
             if len(selected) >= limit:
                 break
 
-            if item["index"] in selected_ids:
+            if item["index"] in selected_indexes:
                 continue
 
             selected.append(
-                item
+                item.copy()
             )
 
-            selected_ids.add(
+            selected_indexes.add(
                 item["index"]
             )
 
@@ -1061,21 +1079,28 @@ def select_candidate_urls(
         for item in selected
     ]
 
-    candidate_matches = [
-        {
-            "url": item["url"],
-            "matched_phrases": [
-                phrase["text"]
-                for phrase
-                in item["matched_phrases"][:6]
-            ],
-            "score": item["score"],
-        }
-        for item in selected
-    ]
+    candidate_matches = []
+
+    for item in selected:
+
+        candidate_matches.append(
+            {
+                "url": item["url"],
+                "matched_phrases": [
+                    phrase["text"]
+                    for phrase
+                    in item[
+                        "matched_phrases"
+                    ]
+                ],
+                "score": item["score"],
+            }
+        )
 
     diagnostics = {
-        "total_urls": len(urls),
+        "total_urls": len(
+            urls
+        ),
         "eligible_urls": len(
             eligible_urls
         ),
