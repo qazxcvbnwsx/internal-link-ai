@@ -6,24 +6,26 @@ import streamlit as st
 
 st.set_page_config(
     page_title="SEO Tools AI",
-    page_icon="🚀",
+    page_icon="🔗",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
+
 
 # --------------------------------------------------
 # CSS
 # --------------------------------------------------
 
-st.markdown("""
-<style>
+st.markdown(
+    """
+    <style>
 
-    /* Główne tło */
+    /* Tło aplikacji */
     .stApp {
-        background: #f7f8fa;
+        background-color: #f7f8fa;
     }
 
-    /* Ukrycie domyślnego menu Streamlit */
+    /* Ukrycie elementów Streamlit */
     #MainMenu {
         visibility: hidden;
     }
@@ -37,8 +39,8 @@ st.markdown("""
     }
 
     /* Główny kontener */
-    .main .block-container {
-        max-width: 1200px;
+    .block-container {
+        max-width: 1100px;
         padding-top: 60px;
         padding-bottom: 60px;
     }
@@ -46,13 +48,12 @@ st.markdown("""
     /* Nagłówek */
     .hero {
         text-align: center;
-        margin-bottom: 55px;
+        margin-bottom: 50px;
     }
 
     .hero-title {
-        font-size: 46px;
+        font-size: 44px;
         font-weight: 700;
-        letter-spacing: -1.5px;
         color: #111827;
         margin-bottom: 12px;
     }
@@ -62,32 +63,25 @@ st.markdown("""
         color: #6b7280;
     }
 
-    /* Kafelek */
+    /* Kafelki */
     .tool-card {
-        background: white;
+        background-color: #ffffff;
         border: 1px solid #e5e7eb;
         border-radius: 18px;
         padding: 30px;
-        min-height: 250px;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.04);
-        transition: all 0.2s ease;
+        min-height: 220px;
         margin-bottom: 20px;
-    }
-
-    .tool-card:hover {
-        border-color: #cbd5e1;
-        box-shadow: 0 8px 25px rgba(0,0,0,0.08);
-        transform: translateY(-2px);
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.04);
     }
 
     .tool-icon {
-        font-size: 38px;
-        margin-bottom: 18px;
+        font-size: 36px;
+        margin-bottom: 15px;
     }
 
     .tool-title {
-        font-size: 23px;
-        font-weight: 650;
+        font-size: 22px;
+        font-weight: 700;
         color: #111827;
         margin-bottom: 10px;
     }
@@ -99,35 +93,35 @@ st.markdown("""
         margin-bottom: 18px;
     }
 
-    .available {
+    .status-available {
         display: inline-block;
-        font-size: 12px;
-        font-weight: 600;
+        padding: 5px 10px;
+        border-radius: 20px;
+        background-color: #ecfdf5;
         color: #047857;
-        background: #ecfdf5;
-        padding: 5px 10px;
-        border-radius: 20px;
-    }
-
-    .coming-soon {
-        display: inline-block;
         font-size: 12px;
         font-weight: 600;
-        color: #6b7280;
-        background: #f3f4f6;
-        padding: 5px 10px;
-        border-radius: 20px;
     }
 
-    /* Przycisk */
+    .status-soon {
+        display: inline-block;
+        padding: 5px 10px;
+        border-radius: 20px;
+        background-color: #f3f4f6;
+        color: #6b7280;
+        font-size: 12px;
+        font-weight: 600;
+    }
+
+    /* Przyciski */
     .stButton > button {
         width: 100%;
         border-radius: 10px;
         border: 1px solid #d1d5db;
-        background: white;
+        background-color: #ffffff;
         color: #111827;
         font-weight: 600;
-        padding: 10px 15px;
+        min-height: 42px;
     }
 
     .stButton > button:hover {
@@ -135,63 +129,64 @@ st.markdown("""
         color: #111827;
     }
 
-</style>
-""", unsafe_allow_html=True)
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
 
 # --------------------------------------------------
 # NAGŁÓWEK
 # --------------------------------------------------
 
-st.markdown("""
-<div class="hero">
-
-    <div class="hero-title">
-        SEO Tools AI
+st.markdown(
+    """
+    <div class="hero">
+        <div class="hero-title">SEO Tools AI</div>
+        <div class="hero-subtitle">
+            Proste narzędzia SEO wspierane przez sztuczną inteligencję
+        </div>
     </div>
-
-    <div class="hero-subtitle">
-        Proste narzędzia SEO wspierane przez sztuczną inteligencję
-    </div>
-
-</div>
-""", unsafe_allow_html=True)
+    """,
+    unsafe_allow_html=True
+)
 
 
 # --------------------------------------------------
-# NARZĘDZIA
+# PIERWSZY RZĄD KAFELKÓW
 # --------------------------------------------------
 
 col1, col2 = st.columns(2)
 
 
 # --------------------------------------------------
-# LINKOWANIE WEWNĘTRZNE
+# KAFEL 1 — LINKOWANIE
 # --------------------------------------------------
 
 with col1:
 
-    st.markdown("""
-    <div class="tool-card">
+    st.markdown(
+        """
+        <div class="tool-card">
+            <div class="tool-icon">🔗</div>
 
-        <div class="tool-icon">🔗</div>
+            <div class="tool-title">
+                Linkowanie wewnętrzne
+            </div>
 
-        <div class="tool-title">
-            Linkowanie wewnętrzne
+            <div class="tool-description">
+                Znajdź naturalne miejsca w artykule,
+                w których warto dodać linki do innych
+                stron w Twoim serwisie.
+            </div>
+
+            <span class="status-available">
+                DOSTĘPNE
+            </span>
         </div>
-
-        <div class="tool-description">
-            Znajdź naturalne miejsca w artykule,
-            w których warto dodać linki do innych
-            stron w Twoim serwisie.
-        </div>
-
-        <span class="available">
-            DOSTĘPNE
-        </span>
-
-    </div>
-    """, unsafe_allow_html=True)
+        """,
+        unsafe_allow_html=True
+    )
 
     if st.button(
         "Otwórz narzędzie →",
@@ -202,83 +197,94 @@ with col1:
 
 
 # --------------------------------------------------
-# AUDYT SEO
+# KAFEL 2 — AUDYT
 # --------------------------------------------------
 
 with col2:
 
-    st.markdown("""
-    <div class="tool-card">
+    st.markdown(
+        """
+        <div class="tool-card">
+            <div class="tool-icon">🔍</div>
 
-        <div class="tool-icon">🔍</div>
+            <div class="tool-title">
+                Audyt SEO
+            </div>
 
-        <div class="tool-title">
-            Audyt SEO
+            <div class="tool-description">
+                Sprawdź najważniejsze elementy techniczne
+                i on-page swojej strony.
+            </div>
+
+            <span class="status-soon">
+                WKRÓTCE
+            </span>
         </div>
-
-        <div class="tool-description">
-            Sprawdź najważniejsze elementy techniczne
-            i on-page swojej strony.
-        </div>
-
-        <span class="coming-soon">
-            WKRÓTCE
-        </span>
-
-    </div>
-    """, unsafe_allow_html=True)
+        """,
+        unsafe_allow_html=True
+    )
 
 
 # --------------------------------------------------
-# ANALIZA TREŚCI
+# DRUGI RZĄD
 # --------------------------------------------------
 
 col3, col4 = st.columns(2)
 
 
+# --------------------------------------------------
+# KAFEL 3 — ANALIZA TREŚCI
+# --------------------------------------------------
+
 with col3:
 
-    st.markdown("""
-    <div class="tool-card">
+    st.markdown(
+        """
+        <div class="tool-card">
+            <div class="tool-icon">📝</div>
 
-        <div class="tool-icon">📝</div>
+            <div class="tool-title">
+                Analiza treści
+            </div>
 
-        <div class="tool-title">
-            Analiza treści
+            <div class="tool-description">
+                Analizuj treść pod kątem tematów,
+                nagłówków, semantyki i potencjału SEO.
+            </div>
+
+            <span class="status-soon">
+                WKRÓTCE
+            </span>
         </div>
+        """,
+        unsafe_allow_html=True
+    )
 
-        <div class="tool-description">
-            Analizuj treść pod kątem tematów,
-            nagłówków, semantyki i potencjału SEO.
-        </div>
 
-        <span class="coming-soon">
-            WKRÓTCE
-        </span>
-
-    </div>
-    """, unsafe_allow_html=True)
-
+# --------------------------------------------------
+# KAFEL 4 — ANALIZA STRONY
+# --------------------------------------------------
 
 with col4:
 
-    st.markdown("""
-    <div class="tool-card">
+    st.markdown(
+        """
+        <div class="tool-card">
+            <div class="tool-icon">📊</div>
 
-        <div class="tool-icon">📊</div>
+            <div class="tool-title">
+                Analiza strony
+            </div>
 
-        <div class="tool-title">
-            Analiza strony
+            <div class="tool-description">
+                Zbierz najważniejsze informacje o stronie
+                i znajdź elementy wymagające optymalizacji.
+            </div>
+
+            <span class="status-soon">
+                WKRÓTCE
+            </span>
         </div>
-
-        <div class="tool-description">
-            Zbierz najważniejsze informacje o stronie
-            i znajdź elementy wymagające optymalizacji.
-        </div>
-
-        <span class="coming-soon">
-            WKRÓTCE
-        </span>
-
-    </div>
-    """, unsafe_allow_html=True)
+        """,
+        unsafe_allow_html=True
+    )
