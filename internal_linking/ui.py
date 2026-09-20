@@ -6,6 +6,7 @@ from .sitemap import (
     get_sitemap_urls,
     find_sitemap_in_robots,
 )
+from .crawler import download_pages
 
 
 def show_internal_linking():
