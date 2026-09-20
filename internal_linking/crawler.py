@@ -29,7 +29,7 @@ def download_page(url):
 
 def download_pages(
     urls,
-    max_workers=10
+    max_workers=25
 ):
     """
     Pobiera wiele stron równocześnie.
