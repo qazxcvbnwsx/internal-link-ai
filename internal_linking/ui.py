@@ -209,7 +209,7 @@ def show_internal_linking():
     if analyze:
 
         # -------------------------------------------------
-        # WALIDACJA ARTYKUŁU
+        # WALIDACJA
         # -------------------------------------------------
 
         if mode == "Mam już artykuł na stronie":
@@ -231,10 +231,6 @@ def show_internal_linking():
                 )
 
                 st.stop()
-
-        # -------------------------------------------------
-        # WALIDACJA SITEMAP
-        # -------------------------------------------------
 
         if not effective_sitemap_url:
 
@@ -451,7 +447,7 @@ def show_internal_linking():
                     removed_current_article = 1
 
             # -------------------------------------------------
-            # PODSUMOWANIE SITEMAP
+            # PODSUMOWANIE
             # -------------------------------------------------
 
             st.success(
@@ -500,12 +496,12 @@ def show_internal_linking():
             )
 
             # -------------------------------------------------
-            # WYBÓR 30 KANDYDATÓW
+            # WYBÓR KANDYDATÓW
             # -------------------------------------------------
 
             with st.spinner(
-                "Wybieram 30 najbardziej obiecujących "
-                "adresów do dalszej analizy..."
+                "Dobieram najbardziej pasujące "
+                "URL-e do treści artykułu..."
             ):
 
                 (
@@ -518,14 +514,100 @@ def show_internal_linking():
                 )
 
             st.markdown(
-                "### Kandydaci do linkowania"
+                "### 30 kandydatów do linkowania"
             )
 
-            st.success(
-                f"Wybrano "
-                f"{len(candidate_urls)} "
-                f"najbardziej pasujących URL-i."
+            st.caption(
+                "Dobór odbywa się na podstawie "
+                "treści artykułu i adresów URL z sitemap. "
+                "Strony docelowe nie są odwiedzane."
             )
+
+            # -------------------------------------------------
+            # TABELA
+            # -------------------------------------------------
+
+            table_rows = []
+
+            for candidate in candidate_info[
+                "candidate_matches"
+            ]:
+
+                phrases = candidate[
+                    "matched_phrases"
+                ]
+
+                if phrases:
+
+                    phrases_html = "<br>".join(
+                        html.escape(
+                            phrase
+                        )
+                        for phrase in phrases
+                    )
+
+                else:
+
+                    phrases_html = (
+                        '<span class="no-match">'
+                        "brak bezpośredniej frazy"
+                        "</span>"
+                    )
+
+                url_html = html.escape(
+                    candidate["url"]
+                )
+
+                table_rows.append(
+                    f"""
+                    <tr>
+                        <td class="phrase-cell">
+                            {phrases_html}
+                        </td>
+                        <td class="url-cell">
+                            <a
+                                href="{url_html}"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                            >
+                                {url_html}
+                            </a>
+                        </td>
+                    </tr>
+                    """
+                )
+
+            table_html = f"""
+            <div class="candidate-table-wrapper">
+                <table class="candidate-table">
+
+                    <thead>
+                        <tr>
+                            <th>
+                                Dopasowane frazy z artykułu
+                            </th>
+                            <th>
+                                URL
+                            </th>
+                        </tr>
+                    </thead>
+
+                    <tbody>
+                        {"".join(table_rows)}
+                    </tbody>
+
+                </table>
+            </div>
+            """
+
+            st.markdown(
+                table_html,
+                unsafe_allow_html=True
+            )
+
+            # -------------------------------------------------
+            # SZCZEGÓŁY SELEKCJI
+            # -------------------------------------------------
 
             with st.expander(
                 "Szczegóły selekcji"
@@ -542,7 +624,7 @@ def show_internal_linking():
                 )
 
                 st.write(
-                    f"URL-i z dopasowaniem tematycznym: "
+                    f"URL-i z dopasowaniem: "
                     f"{candidate_info['matched_urls']}"
                 )
 
@@ -555,46 +637,6 @@ def show_internal_linking():
                     f"Już istniejące linki pominięte: "
                     f"{candidate_info['removed_existing_links']}"
                 )
-
-                if candidate_info["keywords"]:
-
-                    st.write(
-                        "Najważniejsze tematy wykryte "
-                        "w artykule:"
-                    )
-
-                    st.write(
-                        ", ".join(
-                            candidate_info[
-                                "keywords"
-                            ][:20]
-                        )
-                    )
-
-            # -------------------------------------------------
-            # LISTA KANDYDATÓW
-            # -------------------------------------------------
-
-            for number, url in enumerate(
-                candidate_urls,
-                start=1
-            ):
-
-                st.write(
-                    f"**{number}.** {url}"
-                )
-
-            # -------------------------------------------------
-            # INFORMACJA
-            # -------------------------------------------------
-
-            st.info(
-                "ℹ️ To jest wstępna selekcja na podstawie "
-                "treści artykułu i adresów URL z sitemap. "
-                "Żaden z wybranych adresów nie został "
-                "odwiedzony. Następny etap będzie polegał "
-                "na właściwej analizie tych kandydatów."
-            )
 
         except Exception as e:
 
