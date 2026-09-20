@@ -43,9 +43,7 @@ def remove_unwanted_elements(soup):
         ".related-posts",
         ".share-buttons",
         ".cookie",
-        ".cookies",
-        ".breadcrumbs",
-        ".breadcrumb"
+        ".cookies"
     ]
 
     for selector in selectors:
@@ -56,16 +54,12 @@ def remove_unwanted_elements(soup):
 
 
 # =========================================================
-# ZNALEZIENIE GŁÓWNEGO OBSZARU STRONY
+# ZNALEZIENIE GŁÓWNEGO KONTENERA
 # =========================================================
 
 def find_main_content(soup):
 
     selectors = [
-
-        # Najbardziej typowe dla WordPressa
-        "article",
-        "main",
 
         # WordPress
         ".entry-content",
@@ -78,55 +72,55 @@ def find_main_content(soup):
         ".elementor-widget-theme-post-content",
 
         # Gutenberg
-        ".wp-block-post-content"
+        ".wp-block-post-content",
+
+        # Ogólne
+        "article",
+        "main"
     ]
 
     candidates = []
 
     for selector in selectors:
 
-        for element in soup.select(selector):
+        elements = soup.select(
+            selector
+        )
 
-            text_length = len(
-                element.get_text(
-                    " ",
-                    strip=True
-                )
+        for element in elements:
+
+            text = element.get_text(
+                " ",
+                strip=True
             )
 
-            if text_length >= 300:
+            if len(text) >= 300:
 
                 candidates.append(
-                    (
-                        element,
-                        text_length
-                    )
+                    element
                 )
 
     if not candidates:
+
         return None
 
     # =====================================================
     # WYBIERAMY NAJWIĘKSZY KONTENER
     # =====================================================
 
-    # Ważne:
-    # nie wybieramy pierwszego pasującego elementu.
-    #
-    # Przy Elementorze treść może być podzielona
-    # na kilka kolumn. Największy kontener nadrzędny
-    # daje większą szansę na zachowanie całego artykułu.
-
-    candidates.sort(
-        key=lambda item: item[1],
-        reverse=True
+    return max(
+        candidates,
+        key=lambda element: len(
+            element.get_text(
+                " ",
+                strip=True
+            )
+        )
     )
-
-    return candidates[0][0]
 
 
 # =========================================================
-# CZYSZCZENIE GŁÓWNEJ TREŚCI
+# CZYSZCZENIE TREŚCI
 # =========================================================
 
 def clean_content(container):
@@ -141,7 +135,7 @@ def clean_content(container):
     )
 
     # =====================================================
-    # USUWANIE ELEMENTÓW NIEBĘDĄCYCH TREŚCIĄ
+    # USUWANIE ELEMENTÓW POMOCNICZYCH
     # =====================================================
 
     unwanted_classes = [
@@ -161,23 +155,6 @@ def clean_content(container):
         for element in content.select(
             f".{class_name}"
         ):
-
-            element.decompose()
-
-    # =====================================================
-    # USUWANIE PUSTYCH ELEMENTOROWYCH KONTENERÓW
-    # =====================================================
-
-    for element in content.find_all(
-        ["div", "section"]
-    ):
-
-        text = element.get_text(
-            " ",
-            strip=True
-        )
-
-        if not text:
 
             element.decompose()
 
@@ -211,8 +188,9 @@ def clean_content(container):
 
             continue
 
-        # Zachowujemy element HTML
-        # np. H2/H3/P
+        # Zachowujemy strukturę HTML:
+        # H1, H2, H3, H4, P, LI
+
         element.clear()
 
         element.append(
@@ -228,6 +206,10 @@ def clean_content(container):
 
 def extract_article_content(url):
 
+    # =====================================================
+    # POBRANIE STRONY
+    # =====================================================
+
     raw_html = download_page(
         url
     )
@@ -242,15 +224,12 @@ def extract_article_content(url):
     )
 
     # =====================================================
-    # USUWANIE ŚMIECI PRZED SZUKANIEM TREŚCI
-    # =====================================================
-
-    remove_unwanted_elements(
-        soup
-    )
-
-    # =====================================================
-    # GŁÓWNY KONTENER
+    # NAJPIERW SZUKAMY TREŚCI
+    #
+    # WAŻNE:
+    # nie usuwamy jeszcze header/footer/nav,
+    # ponieważ mogą znajdować się w strukturze
+    # kontenera potrzebnego do znalezienia artykułu.
     # =====================================================
 
     main_content = find_main_content(
@@ -265,7 +244,7 @@ def extract_article_content(url):
         )
 
     # =====================================================
-    # CZYSZCZENIE
+    # DOPIERO TERAZ CZYŚCIMY TREŚĆ
     # =====================================================
 
     content = clean_content(
@@ -273,7 +252,7 @@ def extract_article_content(url):
     )
 
     # =====================================================
-    # TEKST
+    # TEKST ARTYKUŁU
     # =====================================================
 
     clean_article_text = content.get_text(
