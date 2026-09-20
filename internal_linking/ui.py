@@ -273,10 +273,6 @@ def show_internal_linking():
                     "Strona artykułu została pobrana."
                 )
 
-                # -----------------------------------------
-                # DIAGNOSTYKA
-                # -----------------------------------------
-
                 with st.expander(
                     "Diagnostyka pobranej treści"
                 ):
@@ -394,7 +390,11 @@ def show_internal_linking():
                 "Odczytuję sitemapę..."
             ):
 
-                sitemap_urls = get_sitemap_urls(
+                (
+                    sitemap_urls,
+                    total_sitemap_urls,
+                    excluded_count
+                ) = get_sitemap_urls(
                     effective_sitemap_url,
                     exclude_fragments=exclude_fragments
                 )
@@ -417,6 +417,8 @@ def show_internal_linking():
             # USUNIĘCIE AKTUALNEGO ARTYKUŁU
             # -------------------------------------------------
 
+            removed_current_article = 0
+
             if mode == "Mam już artykuł na stronie":
 
                 current_url = (
@@ -424,6 +426,10 @@ def show_internal_linking():
                     .strip()
                     .rstrip("/")
                     .lower()
+                )
+
+                original_count = len(
+                    sitemap_urls
                 )
 
                 sitemap_urls = [
@@ -436,25 +442,46 @@ def show_internal_linking():
                     != current_url
                 ]
 
+                if len(sitemap_urls) < original_count:
+
+                    removed_current_article = 1
+
             # -------------------------------------------------
-            # INFORMACJA
+            # PODSUMOWANIE
             # -------------------------------------------------
 
-            if exclude_fragments:
+            st.success(
+                f"Sitemap została odczytana."
+            )
 
-                st.success(
-                    f"Sitemap została odczytana. "
-                    f"Po wykluczeniach i pominięciu "
-                    f"aktualnego artykułu pozostało "
-                    f"{len(sitemap_urls)} URL-i."
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+
+                st.metric(
+                    "URL-i w sitemap",
+                    total_sitemap_urls
                 )
 
-            else:
+            with col2:
 
-                st.success(
-                    f"Sitemap została odczytana. "
-                    f"Pozostało "
-                    f"{len(sitemap_urls)} URL-i."
+                st.metric(
+                    "Wykluczonych",
+                    excluded_count
+                )
+
+            with col3:
+
+                st.metric(
+                    "Pozostałych",
+                    len(sitemap_urls)
+                )
+
+            if removed_current_article:
+
+                st.caption(
+                    "Pominięto również URL aktualnie "
+                    "analizowanego artykułu."
                 )
 
             st.caption(
@@ -462,34 +489,11 @@ def show_internal_linking():
                 f"{sitemap_time:.2f} s"
             )
 
-            # -------------------------------------------------
-            # WAŻNA INFORMACJA
-            # -------------------------------------------------
-
             st.info(
                 "ℹ️ Z sitemap pobierane są wyłącznie "
                 "adresy URL. Narzędzie nie odwiedza "
                 "stron znajdujących się pod tymi adresami."
             )
-
-            # -------------------------------------------------
-            # PODGLĄD URL-I
-            # -------------------------------------------------
-
-            st.markdown(
-                "### Adresy URL z sitemap"
-            )
-
-            st.caption(
-                "Poniższe adresy zostały odczytane "
-                "bez odwiedzania stron."
-            )
-
-            for url in sitemap_urls:
-
-                st.write(
-                    url
-                )
 
         except Exception as e:
 
