@@ -186,10 +186,28 @@ def show_internal_linking():
     )
 
     exclude_fragments = [
-        line.strip()
-        for line in exclude_input.splitlines()
-        if line.strip()
-    ]
+            line.strip()
+            for line in exclude_input.splitlines()
+            if line.strip()
+        ]
+    
+        max_pages = st.selectbox(
+        "Maksymalna liczba stron do analizy",
+        [
+            250,
+            500,
+            1000,
+            2500,
+            5000,
+            "Wszystkie"
+        ],
+        index=2,
+        help=(
+            "Ograniczenie liczby stron pobieranych "
+            "z sitemap. Przy dużych serwisach "
+            "mniejsza liczba znacznie przyspiesza analizę."
+        )
+    )
 
     # -------------------------------------------------
     # ANALIZUJ
@@ -257,6 +275,19 @@ def show_internal_linking():
         if mode == "Mam już artykuł na stronie":
 
             try:
+                # -------------------------------------------------
+                # LIMIT STRON
+                # -------------------------------------------------
+                
+                if max_pages != "Wszystkie":
+                
+                    sitemap_urls_to_download = sitemap_urls[
+                        :int(max_pages)
+                    ]
+                
+                else:
+                
+                    sitemap_urls_to_download = sitemap_urls
 
                 with st.spinner(
                     "Pobieram i analizuję artykuł..."
