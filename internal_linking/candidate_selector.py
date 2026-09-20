@@ -128,6 +128,23 @@ IGNORED_URL_WORDS = {
 }
 
 
+GENERIC_URL_WORDS = {
+    "c",
+    "kategoria",
+    "kategorie",
+    "category",
+    "categories",
+    "produkt",
+    "produkty",
+    "product",
+    "products",
+    "page",
+    "pages",
+    "blog",
+    "news",
+}
+
+
 def normalize_text(text):
     """
     Normalizuje tekst:
@@ -169,8 +186,7 @@ def normalize_token(token):
 
 def tokenize_text(text):
     """
-    Zwraca znormalizowane słowa
-    bez stopwords.
+    Pobiera słowa znaczące z tekstu.
     """
 
     normalized = normalize_text(
@@ -201,21 +217,12 @@ def tokenize_text(text):
 
 def extract_surface_words(text):
     """
-    Pobiera słowa z zachowaniem ich
-    oryginalnej formy i kolejności.
+    Pobiera wszystkie słowa z zachowaniem
+    oryginalnej formy.
 
-    Przykład:
-
-        "Książki o lesbijkach"
-
-    daje:
-
-        [
-            ("ksiazki", "Książki"),
-            ("o", "o"),
-            ("lesbijkach", "lesbijkach")
-        ]
-
+    Stopwords NIE są tutaj usuwane,
+    ponieważ musimy zachować rzeczywiste
+    frazy z tekstu.
     """
 
     raw_words = re.findall(
@@ -248,8 +255,7 @@ def is_meaningful_token(
     token
 ):
     """
-    Sprawdza, czy słowo ma znaczenie
-    przy dopasowaniu tematycznym.
+    Sprawdza, czy słowo jest znaczące.
     """
 
     if len(token) < 4:
@@ -268,11 +274,7 @@ def tokens_are_similar(
     """
     Proste sprawdzenie podobieństwa słów.
 
-    Pozwala uwzględnić podstawowe odmiany,
-    np.:
-        okular
-        okulary
-        okularach
+    Uwzględnia podstawowe odmiany.
     """
 
     if token_a == token_b:
@@ -296,27 +298,21 @@ def tokens_are_similar(
 
 def _extract_exact_phrases_from_text(
     text,
-    source_weight=2
+    source_weight=4
 ):
     """
-    Tworzy wyłącznie rzeczywiste frazy
-    występujące jako ciąg kolejnych słów
-    w tekście.
+    Tworzy rzeczywiste frazy występujące
+    w tekście jako ciąg kolejnych słów.
 
-    Nie usuwa stopwords przed budowaniem frazy.
+    Nie usuwa stopwords.
 
-    Dzięki temu:
+    Przykład:
 
-        "Książki o lesbijkach"
+        Książki o lesbijkach
 
-    pozostaje:
+    pozostaje dokładnie:
 
-        "Książki o lesbijkach"
-
-    a nie:
-
-        "Książki lesbijkach"
-
+        Książki o lesbijkach
     """
 
     words = extract_surface_words(
@@ -328,12 +324,11 @@ def _extract_exact_phrases_from_text(
     if len(words) < 2:
         return phrases
 
-    # Frazy 2-, 3- i 4-wyrazowe.
-    for phrase_length in [
+    # Frazy 2-6 wyrazowe.
+    for phrase_length in range(
         2,
-        3,
-        4,
-    ]:
+        7
+    ):
 
         for start in range(
             len(words) - phrase_length + 1
@@ -361,13 +356,11 @@ def _extract_exact_phrases_from_text(
                 )
             ]
 
-            # Fraza musi mieć przynajmniej
+            # Fraza musi zawierać co najmniej
             # dwa znaczące słowa.
             if len(meaningful_tokens) < 2:
                 continue
 
-            # Odrzucamy bardzo krótkie frazy
-            # składające się tylko z przypadkowych słów.
             if len(display_text) < 8:
                 continue
 
@@ -375,7 +368,9 @@ def _extract_exact_phrases_from_text(
                 {
                     "text": display_text,
                     "tokens": normalized_tokens,
-                    "meaningful_tokens": meaningful_tokens,
+                    "meaningful_tokens": (
+                        meaningful_tokens
+                    ),
                     "weight": source_weight,
                 }
             )
@@ -387,79 +382,34 @@ def _extract_heading_phrases(
     soup
 ):
     """
-    Pobiera rzeczywiste frazy z nagłówków.
-
-    Zachowujemy dokładne słowa występujące
-    w nagłówku.
+    Pobiera dokładne frazy z nagłówków.
     """
 
     phrases = []
 
-    headings = soup.find_all(
+    for heading in soup.find_all(
         [
             "h1",
             "h2",
             "h3",
             "h4",
         ]
-    )
+    ):
 
-    for heading in headings:
-
-        text = " ".join(
+        heading_text = " ".join(
             heading.get_text(
                 " ",
                 strip=True
             ).split()
         )
 
-        if not text:
+        if not heading_text:
             continue
 
-        # Cały nagłówek, jeżeli nie jest
-        # przesadnie długi.
-        heading_words = extract_surface_words(
-            text
-        )
-
-        if (
-            2 <= len(heading_words) <= 8
-        ):
-
-            meaningful_tokens = [
-                token
-                for token, _surface
-                in heading_words
-                if is_meaningful_token(
-                    token
-                )
-            ]
-
-            if len(meaningful_tokens) >= 2:
-
-                phrases.append(
-                    {
-                        "text": " ".join(
-                            word[1]
-                            for word in heading_words
-                        ),
-                        "tokens": [
-                            word[0]
-                            for word in heading_words
-                        ],
-                        "meaningful_tokens": (
-                            meaningful_tokens
-                        ),
-                        "weight": 10,
-                    }
-                )
-
-        # Dodatkowo krótsze dokładne frazy
-        # występujące wewnątrz nagłówka.
         phrases.extend(
             _extract_exact_phrases_from_text(
-                text,
-                source_weight=8
+                heading_text,
+                source_weight=10
             )
         )
 
@@ -502,15 +452,6 @@ def _extract_article_phrases(
     """
     Tworzy listę rzeczywistych fraz
     występujących w artykule.
-
-    Frazy są budowane:
-        - z nagłówków,
-        - z akapitów,
-        - z list,
-        - z blockquote.
-
-    Zawsze zachowują rzeczywistą
-    kolejność słów z tekstu.
     """
 
     soup = BeautifulSoup(
@@ -571,8 +512,7 @@ def extract_article_keywords(
     max_keywords=40
 ):
     """
-    Wyciąga najważniejsze słowa
-    z artykułu.
+    Wyciąga najważniejsze słowa artykułu.
     """
 
     soup = BeautifulSoup(
@@ -582,7 +522,6 @@ def extract_article_keywords(
 
     counter = Counter()
 
-    # Zwykły tekst
     body_text = soup.get_text(
         " ",
         strip=True
@@ -594,7 +533,6 @@ def extract_article_keywords(
 
         counter[token] += 1
 
-    # Nagłówki mają większą wagę
     for heading in soup.find_all(
         [
             "h1",
@@ -665,15 +603,22 @@ def extract_existing_links(
 
 def _url_tokens(url):
     """
-    Wyciąga słowa ze ścieżki URL.
+    Pobiera wszystkie słowa ze ścieżki URL.
+
+    Ważne:
+    zachowujemy również krótkie słowa,
+    np. "o", ponieważ mogą być częścią
+    dokładnej frazy.
     """
 
     parsed = urlparse(
         unquote(url)
     )
 
+    path = parsed.path
+
     normalized_path = normalize_text(
-        parsed.path
+        path
     )
 
     raw_tokens = re.findall(
@@ -685,9 +630,6 @@ def _url_tokens(url):
 
     for token in raw_tokens:
 
-        if len(token) < 3:
-            continue
-
         if token in IGNORED_URL_WORDS:
             continue
 
@@ -698,35 +640,90 @@ def _url_tokens(url):
     return tokens
 
 
-def _phrase_matches_url(
-    phrase,
+def _url_tokens_for_comparison(
+    url
+):
+    """
+    Pobiera URL bez generycznych segmentów,
+    np. /c/, /category/, /produkt/.
+
+    Dzięki temu:
+
+        /c/ksiazki-o-lesbijkach/
+
+    może zostać dokładnie porównane
+    z:
+
+        Książki o lesbijkach
+    """
+
+    tokens = _url_tokens(
+        url
+    )
+
+    return [
+        token
+        for token in tokens
+        if token not in GENERIC_URL_WORDS
+    ]
+
+
+def _contains_exact_sequence(
+    phrase_tokens,
     url_tokens
 ):
     """
-    Sprawdza dopasowanie znaczących słów
-    z rzeczywistej frazy do URL.
-
-    Wszystkie znaczące słowa frazy muszą
-    znaleźć dopasowanie w URL.
-
-    Dzięki temu np.:
-
-        "Książki o lesbijkach"
-
-    może pasować do:
-
-        /ksiazki-o-lesbijkach/
-
-    ale:
-
-        "Kategorii książki lesbijkach"
-
-    nie zostanie utworzone, jeśli taki
-    ciąg nie istnieje w artykule.
+    Sprawdza, czy dokładna sekwencja
+    słów frazy występuje w URL.
     """
 
-    meaningful_tokens = phrase[
-        "meaningful_tokens"
+    if not phrase_tokens:
+        return False
+
+    if not url_tokens:
+        return False
+
+    phrase_length = len(
+        phrase_tokens
+    )
+
+    url_length = len(
+        url_tokens
+    )
+
+    if phrase_length > url_length:
+        return False
+
+    for start in range(
+        url_length - phrase_length + 1
+    ):
+
+        sequence = url_tokens[
+            start:start + phrase_length
+        ]
+
+        if sequence == phrase_tokens:
+
+            return True
+
+    return False
+
+
+def _matched_word_count(
+    phrase_tokens,
+    url_tokens
+):
+    """
+    Liczy ile znaczących słów frazy
+    pasuje do URL.
+    """
+
+    meaningful_tokens = [
+        token
+        for token in phrase_tokens
+        if is_meaningful_token(
+            token
+        )
     ]
 
     if not meaningful_tokens:
@@ -736,8 +733,6 @@ def _phrase_matches_url(
 
     for phrase_token in meaningful_tokens:
 
-        token_found = False
-
         for url_token in url_tokens:
 
             if tokens_are_similar(
@@ -745,31 +740,99 @@ def _phrase_matches_url(
                 url_token
             ):
 
-                token_found = True
+                matched += 1
                 break
-
-        if token_found:
-
-            matched += 1
-
-        else:
-
-            return 0
 
     return matched
 
 
-def _score_url_and_phrases(
-    url,
-    phrases,
-    keyword_weights
+def _score_phrase(
+    phrase,
+    url_tokens
 ):
     """
-    Oblicza dopasowanie URL do rzeczywistych
-    fraz występujących w artykule.
+    Ocenia pojedynczą frazę względem URL.
+
+    Najwyżej oceniane są dokładne,
+    ciągłe dopasowania.
     """
 
-    url_tokens = _url_tokens(
+    phrase_tokens = phrase[
+        "tokens"
+    ]
+
+    meaningful_tokens = phrase[
+        "meaningful_tokens"
+    ]
+
+    if not meaningful_tokens:
+        return 0, False
+
+    # -------------------------------------------------
+    # DOKŁADNE DOPASOWANIE CAŁEJ FRAZY
+    # -------------------------------------------------
+
+    if _contains_exact_sequence(
+        phrase_tokens,
+        url_tokens
+    ):
+
+        phrase_length = len(
+            phrase_tokens
+        )
+
+        score = (
+            1000
+            + phrase_length * 150
+            + phrase["weight"] * 20
+        )
+
+        return (
+            score,
+            True
+        )
+
+    # -------------------------------------------------
+    # CZĘŚCIOWE DOPASOWANIE
+    # -------------------------------------------------
+
+    matched_count = _matched_word_count(
+        phrase_tokens,
+        url_tokens
+    )
+
+    if matched_count == 0:
+        return 0, False
+
+    meaningful_count = len(
+        meaningful_tokens
+    )
+
+    if matched_count < meaningful_count:
+        return 0, False
+
+    score = (
+        50
+        + matched_count * 20
+        + phrase["weight"] * 5
+    )
+
+    return (
+        score,
+        False
+    )
+
+
+def _score_url(
+    url,
+    phrases
+):
+    """
+    Oblicza wynik URL oraz wybiera
+    najlepsze rzeczywiste frazy.
+    """
+
+    url_tokens = _url_tokens_for_comparison(
         url
     )
 
@@ -780,116 +843,84 @@ def _score_url_and_phrases(
             []
         )
 
-    score = 0
-
-    matched_phrases = []
-
-    # -------------------------------------------------
-    # FRAZY
-    # -------------------------------------------------
+    phrase_matches = []
 
     for phrase in phrases:
 
-        matched_count = _phrase_matches_url(
-            phrase,
-            url_tokens
-        )
-
-        if matched_count == 0:
-            continue
-
-        phrase_length = len(
-            phrase["meaningful_tokens"]
-        )
-
-        # Im więcej pełnych znaczących słów
-        # frazy pasuje do URL, tym większy wynik.
-        phrase_score = (
-            phrase["weight"]
-            * matched_count
-            * matched_count
-        )
-
-        # Dodatkowa premia za frazę wielowyrazową.
-        if phrase_length >= 2:
-
-            phrase_score += (
-                phrase_length * 4
+        phrase_score, exact_match = (
+            _score_phrase(
+                phrase,
+                url_tokens
             )
-
-        score += phrase_score
-
-        matched_phrases.append(
-            {
-                "text": phrase["text"],
-                "score": phrase_score,
-            }
         )
 
-    # -------------------------------------------------
-    # POJEDYNCZE SŁOWA
-    # -------------------------------------------------
-
-    for url_token in set(
-        url_tokens
-    ):
-
-        best_word_score = 0
-
-        for keyword, weight in (
-            keyword_weights.items()
-        ):
-
-            if url_token == keyword:
-
-                best_word_score = max(
-                    best_word_score,
-                    weight * 2
-                )
-
-            elif tokens_are_similar(
-                url_token,
-                keyword
-            ):
-
-                best_word_score = max(
-                    best_word_score,
-                    weight
-                )
-
-        score += best_word_score
-
-    # -------------------------------------------------
-    # USUŃ DUPLIKATY FRAZ DLA TEGO URL
-    # -------------------------------------------------
-
-    unique_phrases = []
-
-    seen = set()
-
-    for phrase in sorted(
-        matched_phrases,
-        key=lambda item: -item["score"]
-    ):
-
-        key = normalize_text(
-            phrase["text"]
-        )
-
-        if key in seen:
+        if phrase_score <= 0:
             continue
 
-        seen.add(
-            key
+        phrase_copy = phrase.copy()
+
+        phrase_copy[
+            "score"
+        ] = phrase_score
+
+        phrase_copy[
+            "exact_match"
+        ] = exact_match
+
+        phrase_matches.append(
+            phrase_copy
         )
 
-        unique_phrases.append(
-            phrase
+    if not phrase_matches:
+
+        return (
+            0,
+            []
         )
+
+    # -------------------------------------------------
+    # SORTOWANIE FRAZ
+    # -------------------------------------------------
+
+    phrase_matches.sort(
+        key=lambda item: (
+            not item["exact_match"],
+            -item["score"],
+            -len(item["tokens"])
+        )
+    )
+
+    # Najlepsza fraza decyduje głównie
+    # o pozycji URL-u.
+    best_phrase = phrase_matches[
+        0
+    ]
+
+    url_score = best_phrase[
+        "score"
+    ]
+
+    # Dodatkowe sensowne frazy zwiększają
+    # wynik, ale dużo mniej niż pierwsza.
+    for extra_phrase in phrase_matches[
+        1:4
+    ]:
+
+        url_score += (
+            extra_phrase["score"] * 0.15
+        )
+
+    # Jeżeli istnieje dokładne dopasowanie,
+    # wyraźnie premiujemy taki URL.
+    if best_phrase[
+        "exact_match"
+    ]:
+
+        url_score += 500
 
     return (
-        score,
-        unique_phrases
+        url_score,
+        phrase_matches
     )
 
 
@@ -913,8 +944,8 @@ def filter_existing_links(
     article_html
 ):
     """
-    Usuwa URL-e, które są już podlinkowane
-    w analizowanym artykule.
+    Usuwa URL-e już podlinkowane
+    w artykule.
     """
 
     existing_links = (
@@ -972,9 +1003,11 @@ def select_candidate_urls(
     """
     Wybiera najbardziej pasujące URL-e.
 
-    Każda fraza występująca w artykule
-    może zostać przypisana tylko do
-    jednego URL-a.
+    Frazy pochodzą wyłącznie z rzeczywistych
+    ciągów słów występujących w artykule.
+
+    Szczególnie wysoko oceniane są frazy,
+    które dokładnie występują w URL.
 
     Żaden URL nie jest odwiedzany.
     """
@@ -995,7 +1028,7 @@ def select_candidate_urls(
         )
 
     # -------------------------------------------------
-    # USUNIĘCIE ISTNIEJĄCYCH LINKÓW
+    # ISTNIEJĄCE LINKI
     # -------------------------------------------------
 
     (
@@ -1007,7 +1040,7 @@ def select_candidate_urls(
     )
 
     # -------------------------------------------------
-    # SŁOWA KLUCZOWE
+    # SŁOWA
     # -------------------------------------------------
 
     keywords = extract_article_keywords(
@@ -1021,17 +1054,15 @@ def select_candidate_urls(
         keywords
     ):
 
-        weight = max(
+        keyword_weights[
+            keyword
+        ] = max(
             1,
             40 - position
         )
 
-        keyword_weights[
-            keyword
-        ] = weight
-
     # -------------------------------------------------
-    # RZECZYWISTE FRAZY Z ARTYKUŁU
+    # FRAZY
     # -------------------------------------------------
 
     phrases = _extract_article_phrases(
@@ -1049,10 +1080,9 @@ def select_candidate_urls(
     ):
 
         score, matched_phrases = (
-            _score_url_and_phrases(
+            _score_url(
                 url,
-                phrases,
-                keyword_weights
+                phrases
             )
         )
 
@@ -1068,7 +1098,7 @@ def select_candidate_urls(
         )
 
     # -------------------------------------------------
-    # SORTOWANIE
+    # SORTOWANIE URL-I
     # -------------------------------------------------
 
     scored_urls.sort(
@@ -1114,6 +1144,12 @@ def select_candidate_urls(
         if not unique_phrases:
             continue
 
+        # Pokazujemy maksymalnie 3 najlepsze
+        # frazy dla jednego URL-a.
+        unique_phrases = (
+            unique_phrases[:3]
+        )
+
         item_copy = item.copy()
 
         item_copy[
@@ -1136,8 +1172,7 @@ def select_candidate_urls(
             break
 
     # -------------------------------------------------
-    # JEŻELI NIE MA 30 DOPASOWANYCH URL-I
-    # NIE TWORZYMY SZTUCZNYCH FRAZ
+    # WYNIK
     # -------------------------------------------------
 
     selected_urls = [
