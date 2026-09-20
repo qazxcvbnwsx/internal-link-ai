@@ -74,7 +74,7 @@ def extract_article_content(url):
             stats["h4"] += 1
 
         # Paragrafy
-        elif tag == "p":
+        elif tag in {"p", "div"}:
             output.append(
                 f"<p>{text}</p>"
             )
