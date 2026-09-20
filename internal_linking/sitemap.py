@@ -45,11 +45,17 @@ def find_sitemap_in_robots(page_url):
     Sprawdza robots.txt domeny i szuka wpisu Sitemap:.
 
     Zwraca:
-        {
-            "status": "found" / "missing" / "not_listed" / "error",
-            "sitemap_url": str | None,
-            "robots_url": str
-        }
+        status:
+            found
+            missing
+            not_listed
+            error
+
+        sitemap_url:
+            znaleziony adres sitemap lub None
+
+        robots_url:
+            adres robots.txt
     """
 
     parsed = urlparse(page_url)
