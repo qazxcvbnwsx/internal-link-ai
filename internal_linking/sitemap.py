@@ -60,19 +60,6 @@ def _filter_urls(
 def find_sitemap_in_robots(page_url):
     """
     Sprawdza robots.txt domeny i szuka wpisu Sitemap:.
-
-    Zwraca:
-        status:
-            found
-            missing
-            not_listed
-            error
-
-        sitemap_url:
-            znaleziony adres sitemap lub None
-
-        robots_url:
-            adres robots.txt
     """
 
     parsed = urlparse(
@@ -180,10 +167,20 @@ def find_sitemap_in_robots(page_url):
 
 def get_sitemap_urls(
     sitemap_url,
-    exclude_fragments=None
+    exclude_fragments=None,
+    progress_callback=None
 ):
     """
     Pobiera sitemapę lub sitemap index.
+
+    progress_callback:
+        funkcja wywoływana po pobraniu
+        każdego pliku sitemap:
+
+            progress_callback(
+                completed,
+                total
+            )
 
     Zwraca:
 
@@ -237,6 +234,12 @@ def get_sitemap_urls(
                         url
                     )
 
+        total_sitemaps = len(
+            sitemap_links
+        )
+
+        completed_sitemaps = 0
+
         all_urls = []
 
         for child_sitemap in sitemap_links:
@@ -279,7 +282,17 @@ def get_sitemap_urls(
                             )
 
             except Exception:
-                continue
+
+                pass
+
+            completed_sitemaps += 1
+
+            if progress_callback:
+
+                progress_callback(
+                    completed_sitemaps,
+                    total_sitemaps
+                )
 
         unique_urls = list(
             dict.fromkeys(
@@ -329,6 +342,13 @@ def get_sitemap_urls(
                 urls.append(
                     url
                 )
+
+    if progress_callback:
+
+        progress_callback(
+            1,
+            1
+        )
 
     unique_urls = list(
         dict.fromkeys(
