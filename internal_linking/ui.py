@@ -424,11 +424,79 @@ def show_internal_linking():
                     )
 
                 st.caption(
-                    "Adresy URL nie są tutaj wyświetlane. "
-                    "Zostaną wykorzystane w kolejnym etapie "
-                    "analizy do znalezienia odpowiednich "
-                    "stron do linkowania."
+                    "URL-e zostały przefiltrowane zgodnie "
+                    "z ustawionymi wykluczeniami."
                 )
+                
+                # -------------------------------------------------
+                # POBIERANIE STRON RÓWNOLEGLE
+                # -------------------------------------------------
+                
+                with st.spinner(
+                    f"Pobieram {len(sitemap_urls)} stron "
+                    "równolegle..."
+                ):
+                
+                    pages = download_pages(
+                        sitemap_urls,
+                        max_workers=10
+                    )
+                
+                successful_pages = [
+                    page
+                    for page in pages
+                    if page["html"] is not None
+                ]
+                
+                failed_pages = [
+                    page
+                    for page in pages
+                    if page["html"] is None
+                ]
+                
+                st.success(
+                    f"Pobrano {len(successful_pages)} "
+                    f"z {len(sitemap_urls)} stron."
+                )
+                
+                if failed_pages:
+                
+                    st.warning(
+                        f"Nie udało się pobrać "
+                        f"{len(failed_pages)} stron."
+                    )
+
+        with st.expander(
+    "Szczegóły pobierania"
+):
+
+    st.write(
+        f"Liczba URL-i w sitemap: "
+        f"{len(sitemap_urls)}"
+    )
+
+    st.write(
+        f"Pobrane poprawnie: "
+        f"{len(successful_pages)}"
+    )
+
+    st.write(
+        f"Błędy pobierania: "
+        f"{len(failed_pages)}"
+    )
+
+    if failed_pages:
+
+        st.write(
+            "Przykładowe błędy:"
+        )
+
+        for page in failed_pages[:10]:
+
+            st.write(
+                f"- {page['url']} — "
+                f"{page['error']}"
+            )
 
         except Exception as e:
 
