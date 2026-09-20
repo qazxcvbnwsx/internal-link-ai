@@ -1,5 +1,8 @@
 import streamlit as st
 import requests
+import re
+import html
+import trafilatura
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 
@@ -124,266 +127,15 @@ st.markdown(
 
 
 # =========================================================
-# CZYSZCZENIE DOKUMENTU
-# =========================================================
-
-def remove_unwanted_elements(soup):
-    """
-    Usuwa elementy, które nie są właściwą treścią strony.
-    """
-
-    unwanted = [
-        "script",
-        "style",
-        "noscript",
-        "template",
-        "svg",
-        "iframe",
-        "canvas",
-        "form",
-        "nav",
-        "footer",
-        "header",
-        "aside"
-    ]
-
-    for tag in soup.find_all(unwanted):
-        tag.decompose()
-
-    return soup
-
-
-# =========================================================
-# SZUKANIE GŁÓWNEGO OBSZARU TREŚCI
-# =========================================================
-
-def find_content_area(soup):
-    """
-    Szuka najbardziej prawdopodobnego obszaru głównej treści.
-    Nie wybiera automatycznie pierwszego <main>.
-    """
-
-    candidates = []
-
-    # Najpierw elementy semantyczne
-    selectors = [
-        "article",
-        "main",
-        "[role='main']"
-    ]
-
-    for selector in selectors:
-
-        for element in soup.select(selector):
-
-            paragraphs = element.find_all("p")
-            headings = element.find_all(
-                ["h1", "h2", "h3", "h4"]
-            )
-
-            text = element.get_text(
-                " ",
-                strip=True
-            )
-
-            if len(text) < 300:
-                continue
-
-            score = (
-                len(paragraphs) * 1000
-                + len(headings) * 500
-                + min(len(text), 30000)
-            )
-
-            candidates.append(
-                (score, element)
-            )
-
-    # Jeżeli mamy kandydatów, wybieramy ten,
-    # który ma najwięcej rzeczywistej treści.
-    if candidates:
-
-        candidates.sort(
-            key=lambda item: item[0],
-            reverse=True
-        )
-
-        return candidates[0][1]
-
-    # Fallback
-    return soup.body
-
-
-# =========================================================
-# WYDOBYCIE ELEMENTÓW ARTYKUŁU
-# =========================================================
-
-def extract_article_elements(content):
-    """
-    Pobiera H1-H4, P oraz listy w kolejności
-    występowania w dokumencie.
-    """
-
-    elements = []
-
-    # Szukamy wszystkich elementów treści.
-    # Nie przechodzimy osobno po nagłówkach i akapitach,
-    # dzięki czemu zachowujemy ich kolejność.
-
-    for element in content.find_all(
-        ["h1", "h2", "h3", "h4", "p", "ul", "ol"]
-    ):
-
-        # ---------------------------------------------
-        # NAGŁÓWKI
-        # ---------------------------------------------
-
-        if element.name in [
-            "h1",
-            "h2",
-            "h3",
-            "h4"
-        ]:
-
-            text = element.get_text(
-                " ",
-                strip=True
-            )
-
-            if not text:
-                continue
-
-            elements.append({
-                "type": element.name,
-                "text": text
-            })
-
-        # ---------------------------------------------
-        # AKAPITY
-        # ---------------------------------------------
-
-        elif element.name == "p":
-
-            text = element.get_text(
-                " ",
-                strip=True
-            )
-
-            if not text:
-                continue
-
-            # Pomijamy bardzo krótkie elementy,
-            # które często są np. podpisami lub
-            # elementami technicznymi.
-            if len(text) < 20:
-                continue
-
-            elements.append({
-                "type": "p",
-                "text": text
-            })
-
-        # ---------------------------------------------
-        # LISTY
-        # ---------------------------------------------
-
-        elif element.name in [
-            "ul",
-            "ol"
-        ]:
-
-            items = []
-
-            for li in element.find_all(
-                "li",
-                recursive=False
-            ):
-
-                text = li.get_text(
-                    " ",
-                    strip=True
-                )
-
-                if text:
-
-                    items.append(
-                        text
-                    )
-
-            if items:
-
-                elements.append({
-                    "type": element.name,
-                    "items": items
-                })
-
-    return elements
-
-
-# =========================================================
-# BUDOWANIE HTML PODGLĄDU
-# =========================================================
-
-def elements_to_html(elements):
-
-    html = ""
-
-    for element in elements:
-
-        element_type = element["type"]
-
-        # Nagłówki
-        if element_type in [
-            "h1",
-            "h2",
-            "h3",
-            "h4"
-        ]:
-
-            text = element["text"]
-
-            html += (
-                f"<{element_type}>"
-                f"{text}"
-                f"</{element_type}>"
-            )
-
-        # Akapit
-        elif element_type == "p":
-
-            html += (
-                f"<p>{element['text']}</p>"
-            )
-
-        # Lista numerowana / punktowana
-        elif element_type in [
-            "ul",
-            "ol"
-        ]:
-
-            html += f"<{element_type}>"
-
-            for item in element["items"]:
-
-                html += (
-                    f"<li>{item}</li>"
-                )
-
-            html += f"</{element_type}>"
-
-    return html
-
-
-# =========================================================
-# POBIERANIE ARTYKUŁU
+# POBIERANIE HTML STRONY
 # =========================================================
 
 @st.cache_data(ttl=3600)
-def extract_article_content(url):
+def download_page(url):
 
     response = requests.get(
         url,
-        timeout=20,
+        timeout=30,
         headers={
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -395,59 +147,273 @@ def extract_article_content(url):
 
     response.raise_for_status()
 
-    soup = BeautifulSoup(
-        response.text,
-        "html.parser"
+    return response.text
+
+
+# =========================================================
+# KONWERSJA MARKDOWN → HTML
+# =========================================================
+
+def markdown_to_article_html(markdown_text):
+
+    lines = markdown_text.splitlines()
+
+    output = []
+
+    paragraph_buffer = []
+
+    in_list = False
+    list_type = None
+
+    def flush_paragraph():
+
+        nonlocal paragraph_buffer
+
+        if paragraph_buffer:
+
+            text = " ".join(
+                x.strip()
+                for x in paragraph_buffer
+                if x.strip()
+            )
+
+            if text:
+
+                # Usuwamy markdownowe linki,
+                # ale zostawiamy tekst linku.
+                text = re.sub(
+                    r"\[([^\]]+)\]\([^)]+\)",
+                    r"\1",
+                    text
+                )
+
+                # Usuwamy obrazki
+                text = re.sub(
+                    r"!\[[^\]]*\]\([^)]+\)",
+                    "",
+                    text
+                )
+
+                # Usuwamy HTML-owe tagi,
+                # które mogły zostać zwrócone przez parser.
+                text = re.sub(
+                    r"<[^>]+>",
+                    "",
+                    text
+                )
+
+                output.append(
+                    f"<p>{html.escape(text)}</p>"
+                )
+
+        paragraph_buffer = []
+
+    def close_list():
+
+        nonlocal in_list
+        nonlocal list_type
+
+        if in_list:
+
+            output.append(
+                f"</{list_type}>"
+            )
+
+            in_list = False
+            list_type = None
+
+    for line in lines:
+
+        line = line.strip()
+
+        # Pusta linia
+        if not line:
+
+            flush_paragraph()
+
+            continue
+
+        # -------------------------------------------------
+        # NAGŁÓWKI
+        # -------------------------------------------------
+
+        heading_match = re.match(
+            r"^(#{1,4})\s+(.+)$",
+            line
+        )
+
+        if heading_match:
+
+            flush_paragraph()
+            close_list()
+
+            level = len(
+                heading_match.group(1)
+            )
+
+            text = heading_match.group(2).strip()
+
+            # Usuwamy ewentualne linki
+            text = re.sub(
+                r"\[([^\]]+)\]\([^)]+\)",
+                r"\1",
+                text
+            )
+
+            # Usuwamy HTML
+            text = re.sub(
+                r"<[^>]+>",
+                "",
+                text
+            )
+
+            output.append(
+                f"<h{level}>"
+                f"{html.escape(text)}"
+                f"</h{level}>"
+            )
+
+            continue
+
+        # -------------------------------------------------
+        # LISTA
+        # -------------------------------------------------
+
+        unordered_match = re.match(
+            r"^[-*]\s+(.+)$",
+            line
+        )
+
+        ordered_match = re.match(
+            r"^\d+\.\s+(.+)$",
+            line
+        )
+
+        if unordered_match or ordered_match:
+
+            flush_paragraph()
+
+            current_type = (
+                "ul"
+                if unordered_match
+                else "ol"
+            )
+
+            item_text = (
+                unordered_match.group(1)
+                if unordered_match
+                else ordered_match.group(1)
+            )
+
+            if not in_list:
+
+                in_list = True
+                list_type = current_type
+
+                output.append(
+                    f"<{list_type}>"
+                )
+
+            elif list_type != current_type:
+
+                close_list()
+
+                in_list = True
+                list_type = current_type
+
+                output.append(
+                    f"<{list_type}>"
+                )
+
+            item_text = re.sub(
+                r"\[([^\]]+)\]\([^)]+\)",
+                r"\1",
+                item_text
+            )
+
+            output.append(
+                f"<li>{html.escape(item_text)}</li>"
+            )
+
+            continue
+
+        # -------------------------------------------------
+        # ZWYKŁY TEKST
+        # -------------------------------------------------
+
+        close_list()
+
+        paragraph_buffer.append(
+            line
+        )
+
+    flush_paragraph()
+    close_list()
+
+    return "".join(output)
+
+
+# =========================================================
+# EKSTRAKCJA ARTYKUŁU
+# =========================================================
+
+@st.cache_data(ttl=3600)
+def extract_article_content(url):
+
+    raw_html = download_page(
+        url
     )
 
     # -----------------------------------------------------
-    # USUWAMY ELEMENTY TECHNICZNE
+    # TRAFILATURA
     # -----------------------------------------------------
 
-    soup = remove_unwanted_elements(
-        soup
+    extracted = trafilatura.extract(
+        raw_html,
+        output_format="markdown",
+        include_links=False,
+        include_images=False,
+        include_tables=True,
+        include_formatting=True,
+        favor_precision=False,
+        favor_recall=True
     )
 
-    # -----------------------------------------------------
-    # SZUKAMY OBSZARU TREŚCI
-    # -----------------------------------------------------
-
-    content = find_content_area(
-        soup
-    )
-
-    if content is None:
+    if not extracted:
 
         raise ValueError(
-            "Nie udało się znaleźć głównego "
-            "obszaru treści."
+            "Nie udało się wyodrębnić głównej "
+            "treści strony."
         )
 
     # -----------------------------------------------------
-    # WYDOBYWAMY ELEMENTY
+    # USUWAMY ŚMIECI
     # -----------------------------------------------------
 
-    elements = extract_article_elements(
-        content
+    extracted = re.sub(
+        r"\[svg\]\([^)]+\)",
+        "",
+        extracted,
+        flags=re.IGNORECASE
     )
 
-    if not elements:
-
-        raise ValueError(
-            "Nie znaleziono elementów tekstowych "
-            "w głównej treści strony."
-        )
-
-    # -----------------------------------------------------
-    # HTML
-    # -----------------------------------------------------
-
-    article_html = elements_to_html(
-        elements
+    extracted = re.sub(
+        r"\[image[^\]]*\]\([^)]+\)",
+        "",
+        extracted,
+        flags=re.IGNORECASE
     )
 
     # -----------------------------------------------------
-    # TEKST DO WALIDACJI
+    # MARKDOWN → HTML
+    # -----------------------------------------------------
+
+    article_html = markdown_to_article_html(
+        extracted
+    )
+
+    # -----------------------------------------------------
+    # WALIDACJA
     # -----------------------------------------------------
 
     clean_text = BeautifulSoup(
@@ -469,32 +435,33 @@ def extract_article_content(url):
     # STATYSTYKI
     # -----------------------------------------------------
 
+    soup = BeautifulSoup(
+        article_html,
+        "html.parser"
+    )
+
     stats = {
-        "h1": sum(
-            1 for x in elements
-            if x["type"] == "h1"
+        "h1": len(
+            soup.find_all("h1")
         ),
-        "h2": sum(
-            1 for x in elements
-            if x["type"] == "h2"
+        "h2": len(
+            soup.find_all("h2")
         ),
-        "h3": sum(
-            1 for x in elements
-            if x["type"] == "h3"
+        "h3": len(
+            soup.find_all("h3")
         ),
-        "h4": sum(
-            1 for x in elements
-            if x["type"] == "h4"
+        "h4": len(
+            soup.find_all("h4")
         ),
-        "paragraphs": sum(
-            1 for x in elements
-            if x["type"] == "p"
+        "paragraphs": len(
+            soup.find_all("p")
         ),
-        "lists": sum(
-            1 for x in elements
-            if x["type"] in ["ul", "ol"]
+        "lists": len(
+            soup.find_all(["ul", "ol"])
         ),
-        "characters": len(clean_text)
+        "characters": len(
+            clean_text
+        )
     }
 
     return article_html, stats
@@ -681,7 +648,7 @@ if st.session_state["page"] == "internal_links":
     )
 
     # -----------------------------------------------------
-    # ŹRÓDŁO TEKSTU
+    # ŹRÓDŁO ARTYKUŁU
     # -----------------------------------------------------
 
     mode = st.radio(
@@ -721,7 +688,7 @@ if st.session_state["page"] == "internal_links":
     )
 
     # -----------------------------------------------------
-    # PRZYCISK
+    # ANALIZA
     # -----------------------------------------------------
 
     analyze = st.button(
@@ -765,7 +732,7 @@ if st.session_state["page"] == "internal_links":
             st.stop()
 
         # =================================================
-        # POBIERANIE ARTYKUŁU
+        # ARTYKUŁ Z URL
         # =================================================
 
         if mode == "Mam już artykuł na stronie":
@@ -773,7 +740,7 @@ if st.session_state["page"] == "internal_links":
             try:
 
                 with st.spinner(
-                    "Pobieram artykuł..."
+                    "Pobieram i oczyszczam artykuł..."
                 ):
 
                     article_html, stats = (
@@ -853,7 +820,7 @@ if st.session_state["page"] == "internal_links":
                 if paragraph:
 
                     article_html += (
-                        f"<p>{paragraph}</p>"
+                        f"<p>{html.escape(paragraph)}</p>"
                     )
 
             st.success(
@@ -981,10 +948,6 @@ st.markdown(
 col1, col2, col3 = st.columns(3)
 
 
-# =========================================================
-# INTERNAL LINKING
-# =========================================================
-
 with col1:
 
     with st.container(border=True):
@@ -1015,10 +978,6 @@ with col1:
             st.rerun()
 
 
-# =========================================================
-# SEO AUDIT
-# =========================================================
-
 with col2:
 
     with st.container(border=True):
@@ -1040,10 +999,6 @@ with col2:
             "Narzędzie będzie dostępne wkrótce."
         )
 
-
-# =========================================================
-# CONTENT ANALYSIS
-# =========================================================
 
 with col3:
 
