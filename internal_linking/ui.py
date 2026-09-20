@@ -58,8 +58,12 @@ def show_internal_linking():
     # =====================================================
 
     sitemap_url = st.text_input(
-        "URL sitemap",
-        placeholder="https://twojastrona.pl/sitemap.xml"
+        "URL sitemap (opcjonalnie)",
+        placeholder="https://twojastrona.pl/sitemap.xml",
+        help=(
+            "Przy podanym URL artykułu sitemapę spróbujemy "
+            "znaleźć automatycznie w robots.txt."
+        )
     )
 
     exclude_input = st.text_area(
@@ -114,19 +118,79 @@ def show_internal_linking():
 
                 st.stop()
 
-        if not sitemap_url.strip():
+        exclude_fragments = [
+    line.strip()
+    for line in exclude_input.splitlines()
+    if line.strip()
+]
 
-            st.error(
-                "Podaj URL sitemap."
+# -------------------------------------------------
+# AUTOMATYCZNE SZUKANIE SITEMAPY
+# -------------------------------------------------
+
+effective_sitemap_url = sitemap_url.strip()
+
+if not effective_sitemap_url:
+
+    if mode == "Mam już artykuł na stronie":
+
+        from .sitemap import find_sitemap_in_robots
+
+        with st.spinner(
+            "Nie podano sitemap. Sprawdzam robots.txt..."
+        ):
+
+            robots_result = find_sitemap_in_robots(
+                article_url.strip()
             )
 
+        if robots_result["status"] == "found":
+
+            effective_sitemap_url = (
+                robots_result["sitemap_url"]
+            )
+
+            st.success(
+                "Automatycznie znaleziono sitemapę."
+            )
+
+            st.markdown(
+                f"**Sitemap:** "
+                f"[{effective_sitemap_url}]"
+                f"({effective_sitemap_url})"
+            )
+
+        elif robots_result["status"] == "missing":
+
+            st.error(
+                "Nie znaleziono robots.txt. "
+                "Wklej URL sitemap ręcznie."
+            )
             st.stop()
 
-        exclude_fragments = [
-            line.strip()
-            for line in exclude_input.splitlines()
-            if line.strip()
-        ]
+        elif robots_result["status"] == "not_listed":
+
+            st.warning(
+                "Robots.txt istnieje, ale nie znaleziono "
+                "w nim adresu sitemap. "
+                "Wklej URL sitemap ręcznie."
+            )
+            st.stop()
+
+        else:
+
+            st.warning(
+                "Nie udało się sprawdzić robots.txt. "
+                "Wklej URL sitemap ręcznie."
+            )
+            st.stop()
+
+    else:
+
+        st.error(
+            "Przy wklejonej treści podaj URL sitemap ręcznie."
+        )
+        st.stop()
 
         # =================================================
         # ARTYKUŁ Z URL
@@ -279,7 +343,7 @@ def show_internal_linking():
             ):
 
                 sitemap_urls = get_sitemap_urls(
-                    sitemap_url,
+                    effective_sitemap_url,
                     exclude_fragments=exclude_fragments
                 )
 
