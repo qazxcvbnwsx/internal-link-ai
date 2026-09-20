@@ -15,7 +15,7 @@ st.set_page_config(
 # CSS
 # --------------------------------------------------
 
-st.markdown("""
+st.markdown("
 <style>
 
     /* Główne tło */
@@ -136,14 +136,14 @@ st.markdown("""
     }
 
 </style>
-""", unsafe_allow_html=True)
+", unsafe_allow_html=True)
 
 
 # --------------------------------------------------
 # NAGŁÓWEK
 # --------------------------------------------------
 
-st.markdown("""
+st.markdown("
 <div class="hero">
 
     <div class="hero-title">
@@ -155,7 +155,7 @@ st.markdown("""
     </div>
 
 </div>
-""", unsafe_allow_html=True)
+", unsafe_allow_html=True)
 
 
 # --------------------------------------------------
