@@ -114,7 +114,8 @@ with col1:
             key="internal_links",
             use_container_width=True
         ):
-            st.switch_page("pages/internal_links")
+            st.session_state["page"] = "internal_links"
+            st.rerun()
 
 with col2:
 
