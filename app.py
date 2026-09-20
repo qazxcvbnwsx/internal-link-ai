@@ -205,38 +205,105 @@ if st.session_state["page"] == "internal_links":
                     "html.parser"
                 )
 
-                # Usuwamy elementy, które nie są treścią artykułu
-                for element in soup(
-                    [
-                        "script",
-                        "style",
-                        "nav",
-                        "footer",
-                        "header",
-                        "aside"
-                    ]
+                # --------------------------------------------------
+                # USUWAMY ELEMENTY, KTÓRE NIE SĄ TREŚCIĄ ARTYKUŁU
+                # --------------------------------------------------
+
+                unwanted_tags = [
+                    "script",
+                    "style",
+                    "noscript",
+                    "nav",
+                    "header",
+                    "footer",
+                    "aside",
+                    "form",
+                    "iframe"
+                ]
+
+                for tag in soup.find_all(unwanted_tags):
+                    tag.decompose()
+
+                # Usuwamy elementy typowo związane z menu,
+                # nawigacją, kontaktem i elementami strony
+                unwanted_classes = [
+                    "header",
+                    "footer",
+                    "menu",
+                    "navigation",
+                    "nav",
+                    "navbar",
+                    "breadcrumb",
+                    "breadcrumbs",
+                    "cookie",
+                    "cookies",
+                    "popup",
+                    "modal",
+                    "sidebar",
+                    "widget",
+                    "contact",
+                    "social"
+                ]
+
+                for element in soup.find_all(
+                    class_=lambda value: value and any(
+                        unwanted in str(value).lower()
+                        for unwanted in unwanted_classes
+                    )
                 ):
                     element.decompose()
 
-                # Szukamy głównej treści strony
+                # --------------------------------------------------
+                # USUWAMY TITLE I META DANE
+                # --------------------------------------------------
+
+                if soup.title:
+                    soup.title.decompose()
+
+                for meta in soup.find_all("meta"):
+                    meta.decompose()
+
+                # --------------------------------------------------
+                # SZUKAMY GŁÓWNEJ TREŚCI
+                # --------------------------------------------------
+
                 main = soup.find("main")
 
                 if main:
 
                     content = main.get_text(
-                        separator=" ",
+                        separator="\n",
                         strip=True
                     )
 
                 else:
 
                     content = soup.get_text(
-                        separator=" ",
+                        separator="\n",
                         strip=True
                     )
 
+                # --------------------------------------------------
+                # CZYSZCZENIE PUSTYCH LINII
+                # --------------------------------------------------
+
+                lines = []
+
+                for line in content.splitlines():
+
+                    line = line.strip()
+
+                    if line:
+                        lines.append(line)
+
+                content = "\n".join(lines)
+
+                # --------------------------------------------------
+                # WYNIK
+                # --------------------------------------------------
+
                 st.success(
-                    "Strona została pobrana."
+                    "Strona została pobrana i oczyszczona."
                 )
 
                 st.markdown(
