@@ -146,9 +146,20 @@ def show_internal_linking():
                         )
                     )
 
-                st.success(
-                    "Strona została pobrana."
-                )
+                if exclude_fragments:
+
+                    st.success(
+                        f"Sitemap została poprawnie odczytana. "
+                        f"Po zastosowaniu wykluczeń pozostało "
+                        f"{len(sitemap_urls)} adresów URL."
+                    )
+                
+                else:
+                
+                    st.success(
+                        f"Sitemap została poprawnie odczytana. "
+                        f"Znaleziono {len(sitemap_urls)} adresów URL."
+                    )
 
                 # -----------------------------------------
                 # DIAGNOSTYKA
