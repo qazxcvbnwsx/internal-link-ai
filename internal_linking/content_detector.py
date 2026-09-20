@@ -1,7 +1,7 @@
 from bs4 import BeautifulSoup
 
 
-CONTENT_TAGS = {
+CONTENT_TAGS = [
     "h1",
     "h2",
     "h3",
@@ -10,7 +10,7 @@ CONTENT_TAGS = {
     "li",
     "blockquote",
     "div",
-}
+]
 
 
 EXCLUDED_TAGS = {
@@ -19,6 +19,9 @@ EXCLUDED_TAGS = {
     "noscript",
     "svg",
     "nav",
+    "header",
+    "footer",
+    "aside",
     "form",
     "iframe",
     "canvas",
@@ -106,10 +109,6 @@ def _clean_text(element):
 def _identifier_matches(element):
     """
     Sprawdza class i id danego elementu.
-
-    Ważne:
-    sprawdzamy tylko konkretny element,
-    a nie wszystkich jego rodziców.
     """
 
     classes = element.get("class", [])
@@ -135,11 +134,8 @@ def _identifier_matches(element):
 
 def _is_excluded(element):
     """
-    Sprawdza, czy sam element znajduje się w oczywiście
-    wykluczonym miejscu.
-
-    Nie sprawdzamy wszystkich rodziców pod kątem klas,
-    ponieważ mogłoby to wyciąć cały artykuł.
+    Sprawdza, czy element znajduje się
+    w oczywiście wykluczonym miejscu.
     """
 
     current = element
@@ -157,7 +153,6 @@ def _is_excluded(element):
 
         current = current.parent
 
-    # Dopiero na samym elemencie sprawdzamy class/id.
     if _identifier_matches(element):
         return True
 
@@ -190,13 +185,13 @@ def _is_valid_block(element):
     }:
         return len(text) >= 1
 
-    # Elementy list
+    # Listy
     if element.name == "li":
         return len(text) >= 10
 
-    # Div traktujemy jako tekst tylko wtedy,
-    # gdy nie zawiera już wewnątrz właściwych
-    # elementów tekstowych.
+    # Div może być akapitem w niektórych CMS-ach.
+    # Bierzemy tylko "liściaste" divy, żeby nie pobierać
+    # całych kontenerów zawierających wiele elementów.
     if element.name == "div":
 
         nested_content = element.find(
@@ -208,11 +203,15 @@ def _is_valid_block(element):
                 "p",
                 "li",
                 "blockquote",
-                "div",
             ]
         )
 
         if nested_content is not None:
+            return False
+
+        nested_div = element.find("div")
+
+        if nested_div is not None:
             return False
 
         return len(text) >= 40
@@ -223,9 +222,7 @@ def _is_valid_block(element):
 
 def _get_content_blocks(soup):
     """
-    Pobiera wszystkie elementy treści z całej strony.
-
-    Nie wybieramy jednego kontenera.
+    Pobiera semantyczne elementy treści.
     """
 
     blocks = []
@@ -275,8 +272,8 @@ def _remove_duplicates(blocks):
 
 def _calculate_content_score(blocks):
     """
-    Oblicza, czy znalezione bloki wyglądają jak
-    rzeczywista treść strony.
+    Oblicza, czy znalezione bloki wyglądają
+    jak rzeczywista treść strony.
     """
 
     if not blocks:
@@ -306,6 +303,9 @@ def _calculate_content_score(blocks):
         elif block.name == "li":
             score += 1
 
+        elif block.name == "div":
+            score += 2
+
         if len(text) > 200:
             score += 2
 
@@ -314,7 +314,7 @@ def _calculate_content_score(blocks):
 
 def extract_content_blocks(html):
     """
-    Główna funkcja ekstrakcji.
+    Główna funkcja.
 
     Zwraca:
 
@@ -329,11 +329,17 @@ def extract_content_blocks(html):
 
     cms = detect_cms(html)
 
-    blocks = _get_content_blocks(soup)
+    blocks = _get_content_blocks(
+        soup
+    )
 
-    blocks = _remove_duplicates(blocks)
+    blocks = _remove_duplicates(
+        blocks
+    )
 
-    score = _calculate_content_score(blocks)
+    score = _calculate_content_score(
+        blocks
+    )
 
     if not blocks or score < 10:
         return cms, []
