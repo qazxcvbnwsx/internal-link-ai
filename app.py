@@ -1,4 +1,11 @@
 import streamlit as st
+import requests
+from bs4 import BeautifulSoup
+
+
+# --------------------------------------------------
+# KONFIGURACJA
+# --------------------------------------------------
 
 st.set_page_config(
     page_title="SEO Tools AI",
@@ -181,68 +188,78 @@ if st.session_state["page"] == "internal_links":
 
         else:
 
-    import requests
-    from bs4 import BeautifulSoup
+            try:
 
-    try:
-        response = requests.get(
-            article_url,
-            timeout=15,
-            headers={
-                "User-Agent": "Mozilla/5.0"
-            }
-        )
+                response = requests.get(
+                    article_url,
+                    timeout=15,
+                    headers={
+                        "User-Agent": "Mozilla/5.0"
+                    }
+                )
 
-        response.raise_for_status()
+                response.raise_for_status()
 
-        soup = BeautifulSoup(response.text, "html.parser")
+                soup = BeautifulSoup(
+                    response.text,
+                    "html.parser"
+                )
 
-        # Usuwamy elementy, które nie są treścią artykułu
-        for element in soup([
-            "script",
-            "style",
-            "nav",
-            "footer",
-            "header",
-            "aside"
-        ]):
-            element.decompose()
+                # Usuwamy elementy, które nie są treścią artykułu
+                for element in soup(
+                    [
+                        "script",
+                        "style",
+                        "nav",
+                        "footer",
+                        "header",
+                        "aside"
+                    ]
+                ):
+                    element.decompose()
 
-        # Szukamy głównej treści strony
-        main = soup.find("main")
+                # Szukamy głównej treści strony
+                main = soup.find("main")
 
-        if main:
-            content = main.get_text(
-                separator=" ",
-                strip=True
-            )
-        else:
-            content = soup.get_text(
-                separator=" ",
-                strip=True
-            )
+                if main:
 
-        st.success("Strona została pobrana.")
+                    content = main.get_text(
+                        separator=" ",
+                        strip=True
+                    )
 
-        st.markdown("### Pobrana treść")
+                else:
 
-        st.text_area(
-            "Tekst znaleziony na stronie:",
-            content,
-            height=500
-        )
+                    content = soup.get_text(
+                        separator=" ",
+                        strip=True
+                    )
 
-    except requests.RequestException as e:
+                st.success(
+                    "Strona została pobrana."
+                )
 
-        st.error(
-            f"Nie udało się pobrać strony: {e}"
-        )
+                st.markdown(
+                    "### Pobrana treść"
+                )
 
-    except Exception as e:
+                st.text_area(
+                    "Tekst znaleziony na stronie:",
+                    content,
+                    height=500
+                )
 
-        st.error(
-            f"Wystąpił błąd podczas analizy: {e}"
-        )
+            except requests.RequestException as e:
+
+                st.error(
+                    f"Nie udało się pobrać strony: {e}"
+                )
+
+            except Exception as e:
+
+                st.error(
+                    f"Wystąpił błąd podczas analizy: {e}"
+                )
 
     st.stop()
 
@@ -279,7 +296,9 @@ with col1:
 
     with st.container(border=True):
 
-        st.markdown("## 🔗 Linkowanie wewnętrzne")
+        st.markdown(
+            "## 🔗 Linkowanie wewnętrzne"
+        )
 
         st.write(
             "Znajdź naturalne miejsca w artykule, "
@@ -307,7 +326,9 @@ with col2:
 
     with st.container(border=True):
 
-        st.markdown("## 🔍 Audyt SEO")
+        st.markdown(
+            "## 🔍 Audyt SEO"
+        )
 
         st.write(
             "Sprawdź najważniejsze elementy techniczne "
@@ -332,7 +353,9 @@ with col3:
 
     with st.container(border=True):
 
-        st.markdown("## 📝 Analiza treści")
+        st.markdown(
+            "## 📝 Analiza treści"
+        )
 
         st.write(
             "Analizuj treść pod kątem tematów, "
@@ -350,7 +373,9 @@ with col4:
 
     with st.container(border=True):
 
-        st.markdown("## 📊 Analiza strony")
+        st.markdown(
+            "## 📊 Analiza strony"
+        )
 
         st.write(
             "Zbierz najważniejsze informacje o stronie "
