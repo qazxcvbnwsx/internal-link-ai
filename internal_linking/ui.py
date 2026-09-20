@@ -126,8 +126,7 @@ def show_internal_linking():
 
                     st.warning(
                         "Robots.txt istnieje, ale nie zawiera "
-                        "adresu sitemap. "
-                        "Wklej URL sitemap ręcznie."
+                        "adresu sitemap. Wklej URL sitemap ręcznie."
                     )
 
                 else:
@@ -142,7 +141,7 @@ def show_internal_linking():
                     )
 
     # -------------------------------------------------
-    # POKAŻ ZNALEZIONĄ SITEMAPĘ
+    # ZNALEZIONA SITEMAPA
     # -------------------------------------------------
 
     detected_sitemap = st.session_state.get(
@@ -161,8 +160,6 @@ def show_internal_linking():
             language="text"
         )
 
-    # Jeżeli użytkownik nie podał ręcznie sitemap,
-    # używamy automatycznie znalezionej.
     effective_sitemap_url = (
         sitemap_url.strip()
         or detected_sitemap
@@ -240,7 +237,8 @@ def show_internal_linking():
 
                 st.error(
                     "Nie znaleziono sitemap. "
-                    "Wpisz jej adres ręcznie."
+                    "Wpisz jej adres ręcznie lub użyj "
+                    "przycisku „Znajdź sitemapę”."
                 )
 
             else:
@@ -423,80 +421,75 @@ def show_internal_linking():
                         f"{len(sitemap_urls)} adresów URL."
                     )
 
-                st.caption(
-                    "URL-e zostały przefiltrowane zgodnie "
-                    "z ustawionymi wykluczeniami."
-                )
-                
                 # -------------------------------------------------
                 # POBIERANIE STRON RÓWNOLEGLE
                 # -------------------------------------------------
-                
+
                 with st.spinner(
                     f"Pobieram {len(sitemap_urls)} stron "
                     "równolegle..."
                 ):
-                
+
                     pages = download_pages(
                         sitemap_urls,
                         max_workers=10
                     )
-                
+
                 successful_pages = [
                     page
                     for page in pages
                     if page["html"] is not None
                 ]
-                
+
                 failed_pages = [
                     page
                     for page in pages
                     if page["html"] is None
                 ]
-                
+
                 st.success(
                     f"Pobrano {len(successful_pages)} "
                     f"z {len(sitemap_urls)} stron."
                 )
-                
+
                 if failed_pages:
-                
+
                     st.warning(
                         f"Nie udało się pobrać "
                         f"{len(failed_pages)} stron."
                     )
 
-        with st.expander(
-    "Szczegóły pobierania"
-):
+                with st.expander(
+                    "Szczegóły pobierania"
+                ):
 
-    st.write(
-        f"Liczba URL-i w sitemap: "
-        f"{len(sitemap_urls)}"
-    )
+                    st.write(
+                        f"Liczba URL-i w sitemap: "
+                        f"{len(sitemap_urls)}"
+                    )
 
-    st.write(
-        f"Pobrane poprawnie: "
-        f"{len(successful_pages)}"
-    )
+                    st.write(
+                        f"Pobrane poprawnie: "
+                        f"{len(successful_pages)}"
+                    )
 
-    st.write(
-        f"Błędy pobierania: "
-        f"{len(failed_pages)}"
-    )
+                    st.write(
+                        f"Błędy pobierania: "
+                        f"{len(failed_pages)}"
+                    )
 
-    if failed_pages:
+                    if failed_pages:
 
-        st.write(
-            "Przykładowe błędy:"
-        )
+                        st.write(
+                            "Przykładowe błędy:"
+                        )
 
-        for page in failed_pages[:10]:
+                        for page in failed_pages[:10]:
 
-            st.write(
-                f"- {page['url']} — "
-                f"{page['error']}"
-            )
+                            st.write(
+                                f"- {page['url']} — "
+                                f"{page['error']}"
+                            )
 
         except Exception as e:
 
