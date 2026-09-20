@@ -184,16 +184,43 @@ def _is_valid_block(element):
     if not text:
         return False
 
-    # Nagłówki mogą być krótkie.
+    # Nagłówki
     if element.name in {
         "h1",
         "h2",
         "h3",
         "h4",
     }:
-        return len(text) >= 3
+        return len(text) >= 1
 
-    # Dla zwykłego tekstu wymagamy minimum znaków.
+    # Elementy list
+    if element.name == "li":
+        return len(text) >= 10
+
+    # Div traktujemy jako tekst tylko wtedy,
+    # gdy nie zawiera już wewnątrz właściwych
+    # elementów tekstowych.
+    if element.name == "div":
+
+        nested_content = element.find(
+            [
+                "h1",
+                "h2",
+                "h3",
+                "h4",
+                "p",
+                "li",
+                "blockquote",
+                "div",
+            ]
+        )
+
+        if nested_content is not None:
+            return False
+
+        return len(text) >= 40
+
+    # Zwykłe paragrafy i cytaty
     return len(text) >= 20
 
 
