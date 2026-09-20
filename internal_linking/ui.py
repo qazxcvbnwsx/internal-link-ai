@@ -9,6 +9,10 @@ from .sitemap import (
     find_sitemap_in_robots,
 )
 
+from .candidate_selector import (
+    select_candidate_urls,
+)
+
 
 def show_internal_linking():
 
@@ -447,11 +451,11 @@ def show_internal_linking():
                     removed_current_article = 1
 
             # -------------------------------------------------
-            # PODSUMOWANIE
+            # PODSUMOWANIE SITEMAP
             # -------------------------------------------------
 
             st.success(
-                f"Sitemap została odczytana."
+                "Sitemap została odczytana."
             )
 
             col1, col2, col3 = st.columns(3)
@@ -473,15 +477,15 @@ def show_internal_linking():
             with col3:
 
                 st.metric(
-                    "Pozostałych",
+                    "URL-i po filtrach",
                     len(sitemap_urls)
                 )
 
             if removed_current_article:
 
                 st.caption(
-                    "Pominięto również URL aktualnie "
-                    "analizowanego artykułu."
+                    "Aktualny artykuł został pominięty "
+                    "w dalszej analizie."
                 )
 
             st.caption(
@@ -491,8 +495,105 @@ def show_internal_linking():
 
             st.info(
                 "ℹ️ Z sitemap pobierane są wyłącznie "
-                "adresy URL. Narzędzie nie odwiedza "
-                "stron znajdujących się pod tymi adresami."
+                "adresy URL. Strony znajdujące się "
+                "pod tymi adresami nie są odwiedzane."
+            )
+
+            # -------------------------------------------------
+            # WYBÓR 30 KANDYDATÓW
+            # -------------------------------------------------
+
+            with st.spinner(
+                "Wybieram 30 najbardziej obiecujących "
+                "adresów do dalszej analizy..."
+            ):
+
+                (
+                    candidate_urls,
+                    candidate_info
+                ) = select_candidate_urls(
+                    article_html,
+                    sitemap_urls,
+                    limit=30
+                )
+
+            st.markdown(
+                "### Kandydaci do linkowania"
+            )
+
+            st.success(
+                f"Wybrano "
+                f"{len(candidate_urls)} "
+                f"najbardziej pasujących URL-i."
+            )
+
+            with st.expander(
+                "Szczegóły selekcji"
+            ):
+
+                st.write(
+                    f"URL-i po filtrach: "
+                    f"{candidate_info['total_urls']}"
+                )
+
+                st.write(
+                    f"URL-i dostępnych do selekcji: "
+                    f"{candidate_info['eligible_urls']}"
+                )
+
+                st.write(
+                    f"URL-i z dopasowaniem tematycznym: "
+                    f"{candidate_info['matched_urls']}"
+                )
+
+                st.write(
+                    f"Wybranych kandydatów: "
+                    f"{candidate_info['selected_urls']}"
+                )
+
+                st.write(
+                    f"Już istniejące linki pominięte: "
+                    f"{candidate_info['removed_existing_links']}"
+                )
+
+                if candidate_info["keywords"]:
+
+                    st.write(
+                        "Najważniejsze tematy wykryte "
+                        "w artykule:"
+                    )
+
+                    st.write(
+                        ", ".join(
+                            candidate_info[
+                                "keywords"
+                            ][:20]
+                        )
+                    )
+
+            # -------------------------------------------------
+            # LISTA KANDYDATÓW
+            # -------------------------------------------------
+
+            for number, url in enumerate(
+                candidate_urls,
+                start=1
+            ):
+
+                st.write(
+                    f"**{number}.** {url}"
+                )
+
+            # -------------------------------------------------
+            # INFORMACJA
+            # -------------------------------------------------
+
+            st.info(
+                "ℹ️ To jest wstępna selekcja na podstawie "
+                "treści artykułu i adresów URL z sitemap. "
+                "Żaden z wybranych adresów nie został "
+                "odwiedzony. Następny etap będzie polegał "
+                "na właściwej analizie tych kandydatów."
             )
 
         except Exception as e:
