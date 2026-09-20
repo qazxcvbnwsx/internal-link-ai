@@ -146,7 +146,7 @@ def show_internal_linking():
                     )
 
     # -------------------------------------------------
-    # POKAŻ ZNALEZIONĄ SITEMAPĘ
+    # ZNALEZIONA SITEMAPA
     # -------------------------------------------------
 
     detected_sitemap = st.session_state.get(
@@ -335,28 +335,24 @@ def show_internal_linking():
                     )
 
                     with col1:
-
                         st.metric(
                             "H1",
                             stats["h1"]
                         )
 
                     with col2:
-
                         st.metric(
                             "H2",
                             stats["h2"]
                         )
 
                     with col3:
-
                         st.metric(
                             "H3",
                             stats["h3"]
                         )
 
                     with col4:
-
                         st.metric(
                             "Akapity",
                             stats["paragraphs"]
@@ -510,7 +506,7 @@ def show_internal_linking():
                 st.stop()
 
             # -------------------------------------------------
-            # USUNIĘCIE AKTUALNEGO ARTYKUŁU
+            # AKTUALNY ARTYKUŁ
             # -------------------------------------------------
 
             removed_current_article = 0
@@ -587,30 +583,82 @@ def show_internal_linking():
             )
 
             # -------------------------------------------------
-            # WYBÓR KANDYDATÓW
+            # WYBÓR 30 KANDYDATÓW
             # -------------------------------------------------
 
-            with st.spinner(
-                "Dobieram najbardziej pasujące "
-                "URL-e do treści artykułu..."
+            st.markdown(
+                "### Wybór kandydatów"
+            )
+
+            candidate_progress_text = st.empty()
+
+            candidate_progress_bar = st.progress(
+                0
+            )
+
+            candidate_start = time.perf_counter()
+
+            def update_candidate_progress(
+                completed,
+                total
             ):
 
-                (
-                    candidate_urls,
-                    candidate_info
-                ) = select_candidate_urls(
-                    article_html,
-                    sitemap_urls,
-                    limit=30
+                if total <= 0:
+                    return
+
+                elapsed = (
+                    time.perf_counter()
+                    - candidate_start
                 )
+
+                candidate_progress_text.markdown(
+                    f"**Analizowanie URL-i:** "
+                    f"{completed} / {total} "
+                    f"• **Czas:** "
+                    f"{elapsed:.1f} s"
+                )
+
+                candidate_progress_bar.progress(
+                    completed / total
+                )
+
+            (
+                candidate_urls,
+                candidate_info
+            ) = select_candidate_urls(
+                article_html,
+                sitemap_urls,
+                limit=30,
+                progress_callback=(
+                    update_candidate_progress
+                )
+            )
+
+            candidate_time = (
+                time.perf_counter()
+                - candidate_start
+            )
+
+            candidate_progress_bar.progress(
+                1.0
+            )
+
+            candidate_progress_text.success(
+                f"Analiza URL-i zakończona "
+                f"w {candidate_time:.2f} s."
+            )
+
+            # -------------------------------------------------
+            # WYNIK
+            # -------------------------------------------------
 
             st.markdown(
                 "### 30 kandydatów do linkowania"
             )
 
             st.caption(
-                "Każda fraza jest przypisywana "
-                "tylko do jednego URL-a."
+                "Kandydaci zostali wybrani z całej "
+                "listy URL-i pozostałej po filtrach."
             )
 
             # -------------------------------------------------
@@ -640,7 +688,7 @@ def show_internal_linking():
 
                     phrases_html = (
                         '<span class="no-match">'
-                        "brak unikalnej frazy"
+                        "brak odpowiedniej frazy"
                         "</span>"
                     )
 
@@ -716,12 +764,12 @@ def show_internal_linking():
             else:
 
                 st.warning(
-                    "Nie znaleziono URL-i z odpowiednimi "
-                    "frazami w artykule."
+                    "Nie znaleziono odpowiednich "
+                    "kandydatów."
                 )
 
             # -------------------------------------------------
-            # SZCZEGÓŁY SELEKCJI
+            # SZCZEGÓŁY
             # -------------------------------------------------
 
             with st.expander(
@@ -756,7 +804,7 @@ def show_internal_linking():
         except Exception as e:
 
             st.error(
-                f"Nie udało się odczytać sitemap: {e}"
+                f"Nie udało się przeanalizować sitemap: {e}"
             )
 
     # -------------------------------------------------
