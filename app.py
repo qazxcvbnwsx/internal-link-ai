@@ -114,12 +114,11 @@ with col1:
         st.success("DOSTĘPNE")
 
         if st.button(
-            "Otwórz narzędzie →",
-            key="internal_links",
-            use_container_width=True
-        ):
-            st.session_state["page"] = "internal_links"
-            st.rerun()
+    "Otwórz narzędzie →",
+    key="internal_links",
+    use_container_width=True
+):
+    st.switch_page("pages/internal_links.py")
 
 
 # --------------------------------------------------
