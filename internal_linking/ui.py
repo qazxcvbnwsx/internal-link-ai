@@ -122,6 +122,12 @@ def show_internal_linking():
 
             st.stop()
 
+        exclude_fragments = [
+            line.strip()
+            for line in exclude_input.splitlines()
+            if line.strip()
+        ]
+
         # =================================================
         # ARTYKUŁ Z URL
         # =================================================
