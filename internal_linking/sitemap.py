@@ -5,14 +5,25 @@ from urllib.parse import urlparse
 from .crawler import USER_AGENT
 
 
-def _filter_urls(urls, exclude_fragments=None):
+def _filter_urls(
+    urls,
+    exclude_fragments=None
+):
     """
     Usuwa URL-e zawierające podane fragmenty.
-    Wielkość liter nie ma znaczenia.
+
+    Zwraca:
+        filtered_urls
+        excluded_count
     """
 
+    unique_urls = list(
+        dict.fromkeys(urls)
+    )
+
     if not exclude_fragments:
-        return list(dict.fromkeys(urls))
+
+        return unique_urls, 0
 
     fragments = [
         fragment.strip().lower()
@@ -21,11 +32,13 @@ def _filter_urls(urls, exclude_fragments=None):
     ]
 
     if not fragments:
-        return list(dict.fromkeys(urls))
+
+        return unique_urls, 0
 
     filtered = []
+    excluded_count = 0
 
-    for url in urls:
+    for url in unique_urls:
 
         url_lower = url.lower()
 
@@ -33,11 +46,15 @@ def _filter_urls(urls, exclude_fragments=None):
             fragment in url_lower
             for fragment in fragments
         ):
+
+            excluded_count += 1
             continue
 
-        filtered.append(url)
+        filtered.append(
+            url
+        )
 
-    return list(dict.fromkeys(filtered))
+    return filtered, excluded_count
 
 
 def find_sitemap_in_robots(page_url):
@@ -58,9 +75,12 @@ def find_sitemap_in_robots(page_url):
             adres robots.txt
     """
 
-    parsed = urlparse(page_url)
+    parsed = urlparse(
+        page_url
+    )
 
     if not parsed.scheme or not parsed.netloc:
+
         return {
             "status": "error",
             "sitemap_url": None,
@@ -90,7 +110,6 @@ def find_sitemap_in_robots(page_url):
             "robots_url": robots_url,
         }
 
-    # robots.txt nie istnieje
     if response.status_code == 404:
 
         return {
@@ -99,7 +118,6 @@ def find_sitemap_in_robots(page_url):
             "robots_url": robots_url,
         }
 
-    # Inny błąd serwera
     if response.status_code != 200:
 
         return {
@@ -117,7 +135,6 @@ def find_sitemap_in_robots(page_url):
         if not line:
             continue
 
-        # Pomijamy komentarze
         if line.startswith("#"):
             continue
 
@@ -135,6 +152,7 @@ def find_sitemap_in_robots(page_url):
         sitemap_url = value.strip()
 
         if sitemap_url:
+
             sitemap_urls.append(
                 sitemap_url
             )
@@ -167,8 +185,11 @@ def get_sitemap_urls(
     """
     Pobiera sitemapę lub sitemap index.
 
-    Zwraca adresy URL po zastosowaniu
-    opcjonalnych wykluczeń.
+    Zwraca:
+
+        sitemap_urls
+        total_urls
+        excluded_count
     """
 
     response = requests.get(
@@ -211,6 +232,7 @@ def get_sitemap_urls(
                 )
 
                 if url:
+
                     sitemap_links.append(
                         url
                     )
@@ -251,6 +273,7 @@ def get_sitemap_urls(
                         )
 
                         if url:
+
                             all_urls.append(
                                 url
                             )
@@ -258,9 +281,27 @@ def get_sitemap_urls(
             except Exception:
                 continue
 
-        return _filter_urls(
-            all_urls,
-            exclude_fragments
+        unique_urls = list(
+            dict.fromkeys(
+                all_urls
+            )
+        )
+
+        total_urls = len(
+            unique_urls
+        )
+
+        filtered_urls, excluded_count = (
+            _filter_urls(
+                unique_urls,
+                exclude_fragments
+            )
+        )
+
+        return (
+            filtered_urls,
+            total_urls,
+            excluded_count
         )
 
     # -------------------------------------------------
@@ -284,11 +325,30 @@ def get_sitemap_urls(
             )
 
             if url:
+
                 urls.append(
                     url
                 )
 
-    return _filter_urls(
-        urls,
-        exclude_fragments
+    unique_urls = list(
+        dict.fromkeys(
+            urls
+        )
+    )
+
+    total_urls = len(
+        unique_urls
+    )
+
+    filtered_urls, excluded_count = (
+        _filter_urls(
+            unique_urls,
+            exclude_fragments
+        )
+    )
+
+    return (
+        filtered_urls,
+        total_urls,
+        excluded_count
     )
