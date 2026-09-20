@@ -2,7 +2,10 @@ import streamlit as st
 import html
 
 from .extractor import extract_article_content
-from .sitemap import get_sitemap_urls
+from .sitemap import (
+    get_sitemap_urls,
+    find_sitemap_in_robots,
+)
 
 
 def show_internal_linking():
@@ -22,9 +25,9 @@ def show_internal_linking():
         unsafe_allow_html=True
     )
 
-    # =====================================================
-    # ŹRÓDŁO ARTYKUŁU
-    # =====================================================
+    # -------------------------------------------------
+    # ŹRÓDŁO TEKSTU
+    # -------------------------------------------------
 
     mode = st.radio(
         "Wybierz źródło tekstu:",
@@ -53,66 +56,120 @@ def show_internal_linking():
             placeholder="Wklej tutaj cały tekst artykułu..."
         )
 
-    # =====================================================
+    # -------------------------------------------------
     # SITEMAP
-    # =====================================================
+    # -------------------------------------------------
 
     sitemap_url = st.text_input(
         "URL sitemap",
         placeholder="https://twojastrona.pl/sitemap.xml",
+        help=(
+            "Możesz wpisać sitemapę ręcznie albo "
+            "znaleźć ją automatycznie przez robots.txt."
+        )
     )
+
+    # -------------------------------------------------
+    # ZNAJDŹ SITEMAPĘ
+    # -------------------------------------------------
 
     if mode == "Mam już artykuł na stronie":
 
-    if st.button(
-        "🔍 Znajdź sitemapę",
-        use_container_width=True
-    ):
+        if st.button(
+            "🔍 Znajdź sitemapę",
+            use_container_width=True
+        ):
 
-        if not article_url.strip():
-            st.error("Najpierw podaj URL artykułu.")
-        else:
+            if not article_url.strip():
 
-            from .sitemap import find_sitemap_in_robots
-
-            with st.spinner(
-                "Sprawdzam robots.txt..."
-            ):
-
-                robots_result = find_sitemap_in_robots(
-                    article_url.strip()
-                )
-
-            if robots_result["status"] == "found":
-
-                st.session_state[
-                    "detected_sitemap"
-                ] = robots_result["sitemap_url"]
-
-                st.success(
-                    "Znaleziono sitemapę."
-                )
-
-            elif robots_result["status"] == "missing":
-
-                st.warning(
-                    "Nie znaleziono robots.txt. "
-                    "Wklej URL sitemap ręcznie."
-                )
-
-            elif robots_result["status"] == "not_listed":
-
-                st.warning(
-                    "Robots.txt istnieje, ale nie zawiera "
-                    "adresu sitemap. Wklej URL sitemap ręcznie."
+                st.error(
+                    "Najpierw podaj URL artykułu."
                 )
 
             else:
 
-                st.warning(
-                    "Nie udało się sprawdzić robots.txt. "
-                    "Wklej URL sitemap ręcznie."
-                )
+                with st.spinner(
+                    "Sprawdzam robots.txt..."
+                ):
+
+                    robots_result = find_sitemap_in_robots(
+                        article_url.strip()
+                    )
+
+                if robots_result["status"] == "found":
+
+                    st.session_state[
+                        "detected_sitemap"
+                    ] = robots_result["sitemap_url"]
+
+                    st.success(
+                        "Znaleziono sitemapę."
+                    )
+
+                elif robots_result["status"] == "missing":
+
+                    st.session_state[
+                        "detected_sitemap"
+                    ] = ""
+
+                    st.warning(
+                        "Nie znaleziono robots.txt. "
+                        "Wklej URL sitemap ręcznie."
+                    )
+
+                elif robots_result["status"] == "not_listed":
+
+                    st.session_state[
+                        "detected_sitemap"
+                    ] = ""
+
+                    st.warning(
+                        "Robots.txt istnieje, ale nie zawiera "
+                        "adresu sitemap. "
+                        "Wklej URL sitemap ręcznie."
+                    )
+
+                else:
+
+                    st.session_state[
+                        "detected_sitemap"
+                    ] = ""
+
+                    st.warning(
+                        "Nie udało się sprawdzić robots.txt. "
+                        "Wklej URL sitemap ręcznie."
+                    )
+
+    # -------------------------------------------------
+    # POKAŻ ZNALEZIONĄ SITEMAPĘ
+    # -------------------------------------------------
+
+    detected_sitemap = st.session_state.get(
+        "detected_sitemap",
+        ""
+    )
+
+    if detected_sitemap:
+
+        st.markdown(
+            "**Znaleziony adres sitemap:**"
+        )
+
+        st.code(
+            detected_sitemap,
+            language="text"
+        )
+
+    # Jeżeli użytkownik nie podał ręcznie sitemap,
+    # używamy automatycznie znalezionej.
+    effective_sitemap_url = (
+        sitemap_url.strip()
+        or detected_sitemap
+    )
+
+    # -------------------------------------------------
+    # WYKLUCZENIA URL
+    # -------------------------------------------------
 
     exclude_input = st.text_area(
         "Wyklucz URL-e zawierające",
@@ -125,14 +182,20 @@ def show_internal_linking():
         height=100,
         help=(
             "Wpisz fragmenty URL-i, które mają zostać "
-            "pominięte podczas analizy. Każdy fragment "
-            "w osobnej linii."
+            "pominięte podczas analizy. "
+            "Każdy fragment wpisz w osobnej linii."
         )
     )
 
-    # =====================================================
-    # ANALIZA
-    # =====================================================
+    exclude_fragments = [
+        line.strip()
+        for line in exclude_input.splitlines()
+        if line.strip()
+    ]
+
+    # -------------------------------------------------
+    # ANALIZUJ
+    # -------------------------------------------------
 
     analyze = st.button(
         "🔍 Analizuj",
@@ -142,9 +205,9 @@ def show_internal_linking():
 
     if analyze:
 
-        # =================================================
-        # WALIDACJA
-        # =================================================
+        # -------------------------------------------------
+        # WALIDACJA ARTYKUŁU
+        # -------------------------------------------------
 
         if mode == "Mam już artykuł na stronie":
 
@@ -166,83 +229,31 @@ def show_internal_linking():
 
                 st.stop()
 
-        exclude_fragments = [
-    line.strip()
-    for line in exclude_input.splitlines()
-    if line.strip()
-]
+        # -------------------------------------------------
+        # WALIDACJA SITEMAP
+        # -------------------------------------------------
 
-# -------------------------------------------------
-# AUTOMATYCZNE SZUKANIE SITEMAPY
-# -------------------------------------------------
+        if not effective_sitemap_url:
 
-effective_sitemap_url = sitemap_url.strip()
+            if mode == "Mam już artykuł na stronie":
 
-if not effective_sitemap_url:
+                st.error(
+                    "Nie znaleziono sitemap. "
+                    "Wpisz jej adres ręcznie."
+                )
 
-    if mode == "Mam już artykuł na stronie":
+            else:
 
-        from .sitemap import find_sitemap_in_robots
+                st.error(
+                    "Przy wklejonej treści artykułu "
+                    "podaj URL sitemap ręcznie."
+                )
 
-        with st.spinner(
-            "Nie podano sitemap. Sprawdzam robots.txt..."
-        ):
-
-            robots_result = find_sitemap_in_robots(
-                article_url.strip()
-            )
-
-        if robots_result["status"] == "found":
-
-            effective_sitemap_url = (
-                robots_result["sitemap_url"]
-            )
-
-            st.success(
-                "Automatycznie znaleziono sitemapę."
-            )
-
-            st.markdown(
-                f"**Sitemap:** "
-                f"[{effective_sitemap_url}]"
-                f"({effective_sitemap_url})"
-            )
-
-        elif robots_result["status"] == "missing":
-
-            st.error(
-                "Nie znaleziono robots.txt. "
-                "Wklej URL sitemap ręcznie."
-            )
             st.stop()
 
-        elif robots_result["status"] == "not_listed":
-
-            st.warning(
-                "Robots.txt istnieje, ale nie znaleziono "
-                "w nim adresu sitemap. "
-                "Wklej URL sitemap ręcznie."
-            )
-            st.stop()
-
-        else:
-
-            st.warning(
-                "Nie udało się sprawdzić robots.txt. "
-                "Wklej URL sitemap ręcznie."
-            )
-            st.stop()
-
-    else:
-
-        st.error(
-            "Przy wklejonej treści podaj URL sitemap ręcznie."
-        )
-        st.stop()
-
-        # =================================================
-        # ARTYKUŁ Z URL
-        # =================================================
+        # -------------------------------------------------
+        # POBRANIE ARTYKUŁU
+        # -------------------------------------------------
 
         if mode == "Mam już artykuł na stronie":
 
@@ -258,20 +269,9 @@ if not effective_sitemap_url:
                         )
                     )
 
-                if exclude_fragments:
-
-                    st.success(
-                        f"Sitemap została poprawnie odczytana. "
-                        f"Po zastosowaniu wykluczeń pozostało "
-                        f"{len(sitemap_urls)} adresów URL."
-                    )
-                
-                else:
-                
-                    st.success(
-                        f"Sitemap została poprawnie odczytana. "
-                        f"Znaleziono {len(sitemap_urls)} adresów URL."
-                    )
+                st.success(
+                    "Strona została pobrana."
+                )
 
                 # -----------------------------------------
                 # DIAGNOSTYKA
@@ -286,28 +286,24 @@ if not effective_sitemap_url:
                     )
 
                     with col1:
-
                         st.metric(
                             "H1",
                             stats["h1"]
                         )
 
                     with col2:
-
                         st.metric(
                             "H2",
                             stats["h2"]
                         )
 
                     with col3:
-
                         st.metric(
                             "H3",
                             stats["h3"]
                         )
 
                     with col4:
-
                         st.metric(
                             "Akapity",
                             stats["paragraphs"]
@@ -325,6 +321,15 @@ if not effective_sitemap_url:
                         f"Znaki: {stats['characters']}"
                     )
 
+                    st.write(
+                        f"CMS: {stats['cms']}"
+                    )
+
+                    st.write(
+                        f"Metoda ekstrakcji: "
+                        f"{stats['method']}"
+                    )
+
             except Exception as e:
 
                 st.error(
@@ -332,10 +337,6 @@ if not effective_sitemap_url:
                 )
 
                 st.stop()
-
-        # =================================================
-        # TEKST WKLEJONY
-        # =================================================
 
         else:
 
@@ -359,9 +360,9 @@ if not effective_sitemap_url:
                 "Tekst został wczytany."
             )
 
-        # =================================================
+        # -------------------------------------------------
         # PODGLĄD ARTYKUŁU
-        # =================================================
+        # -------------------------------------------------
 
         st.markdown(
             "### Podgląd treści artykułu"
@@ -376,14 +377,15 @@ if not effective_sitemap_url:
             unsafe_allow_html=True
         )
 
-        # =================================================
-        # SITEMAP
-        # =================================================
-
         st.markdown(
-        "<div style='height: 30px;'></div>",
-        unsafe_allow_html=True
+            "<div style='height: 50px;'></div>",
+            unsafe_allow_html=True
         )
+
+        # -------------------------------------------------
+        # POBRANIE SITEMAP
+        # -------------------------------------------------
+
         try:
 
             with st.spinner(
@@ -398,19 +400,27 @@ if not effective_sitemap_url:
             if not sitemap_urls:
 
                 st.warning(
-                    "Nie znaleziono żadnych URL-i w sitemapie."
+                    "Nie znaleziono żadnych URL-i "
+                    "w sitemapie po zastosowaniu wykluczeń."
                 )
 
             else:
 
-                st.success(
-                    f"Sitemap została poprawnie odczytana. "
-                    f"Znaleziono {len(sitemap_urls)} adresów URL."
-                )
+                if exclude_fragments:
 
-                # -----------------------------------------
-                # INFORMACJA
-                # -----------------------------------------
+                    st.success(
+                        f"Sitemap została poprawnie odczytana. "
+                        f"Po zastosowaniu wykluczeń pozostało "
+                        f"{len(sitemap_urls)} adresów URL."
+                    )
+
+                else:
+
+                    st.success(
+                        f"Sitemap została poprawnie odczytana. "
+                        f"Znaleziono "
+                        f"{len(sitemap_urls)} adresów URL."
+                    )
 
                 st.caption(
                     "Adresy URL nie są tutaj wyświetlane. "
@@ -425,9 +435,9 @@ if not effective_sitemap_url:
                 f"Nie udało się pobrać sitemap: {e}"
             )
 
-    # =====================================================
+    # -------------------------------------------------
     # POWRÓT
-    # =====================================================
+    # -------------------------------------------------
 
     st.markdown("---")
 
