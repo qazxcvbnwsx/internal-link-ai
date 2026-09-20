@@ -151,6 +151,50 @@ def download_page(url):
 
 
 # =========================================================
+# CZYSZCZENIE TEKSTU MARKDOWN
+# =========================================================
+
+def clean_markdown_text(text):
+
+    # Usuwamy obrazki Markdown
+    text = re.sub(
+        r"!\[[^\]]*\]\([^)]+\)",
+        "",
+        text
+    )
+
+    # Zamieniamy link Markdown na sam tekst
+    text = re.sub(
+        r"\[([^\]]+)\]\([^)]+\)",
+        r"\1",
+        text
+    )
+
+    # Usuwamy ewentualne HTML
+    text = re.sub(
+        r"<[^>]+>",
+        "",
+        text
+    )
+
+    # Usuwamy nadmiarowe gwiazdki pogrubienia
+    text = re.sub(
+        r"\*\*(.*?)\*\*",
+        r"\1",
+        text
+    )
+
+    # Usuwamy pojedyncze gwiazdki kursywy
+    text = re.sub(
+        r"\*(.*?)\*",
+        r"\1",
+        text
+    )
+
+    return text.strip()
+
+
+# =========================================================
 # KONWERSJA MARKDOWN → HTML
 # =========================================================
 
@@ -169,44 +213,26 @@ def markdown_to_article_html(markdown_text):
 
         nonlocal paragraph_buffer
 
-        if paragraph_buffer:
+        if not paragraph_buffer:
+            return
 
-            text = " ".join(
-                x.strip()
-                for x in paragraph_buffer
-                if x.strip()
-            )
-
-            if text:
-
-                # Usuwamy markdownowe linki,
-                # ale zostawiamy tekst linku.
-                text = re.sub(
-                    r"\[([^\]]+)\]\([^)]+\)",
-                    r"\1",
-                    text
-                )
-
-                # Usuwamy obrazki
-                text = re.sub(
-                    r"!\[[^\]]*\]\([^)]+\)",
-                    "",
-                    text
-                )
-
-                # Usuwamy HTML-owe tagi,
-                # które mogły zostać zwrócone przez parser.
-                text = re.sub(
-                    r"<[^>]+>",
-                    "",
-                    text
-                )
-
-                output.append(
-                    f"<p>{html.escape(text)}</p>"
-                )
+        text = " ".join(
+            x.strip()
+            for x in paragraph_buffer
+            if x.strip()
+        )
 
         paragraph_buffer = []
+
+        if not text:
+            return
+
+        text = clean_markdown_text(text)
+
+        if text:
+            output.append(
+                f"<p>{html.escape(text)}</p>"
+            )
 
     def close_list():
 
@@ -222,11 +248,14 @@ def markdown_to_article_html(markdown_text):
             in_list = False
             list_type = None
 
-    for line in lines:
+    for raw_line in lines:
 
-        line = line.strip()
+        line = raw_line.strip()
 
-        # Pusta linia
+        # -------------------------------------------------
+        # PUSTA LINIA
+        # -------------------------------------------------
+
         if not line:
 
             flush_paragraph()
@@ -234,11 +263,11 @@ def markdown_to_article_html(markdown_text):
             continue
 
         # -------------------------------------------------
-        # NAGŁÓWKI
+        # NAGŁÓWKI MARKDOWN
         # -------------------------------------------------
 
         heading_match = re.match(
-            r"^(#{1,4})\s+(.+)$",
+            r"^\s*(#{1,6})\s+(.+?)\s*$",
             line
         )
 
@@ -251,41 +280,61 @@ def markdown_to_article_html(markdown_text):
                 heading_match.group(1)
             )
 
-            text = heading_match.group(2).strip()
+            # W naszym podglądzie obsługujemy H1-H4.
+            # H5/H6 traktujemy jako H4.
+            if level > 4:
+                level = 4
 
-            # Usuwamy ewentualne linki
-            text = re.sub(
-                r"\[([^\]]+)\]\([^)]+\)",
-                r"\1",
-                text
+            heading_text = heading_match.group(2)
+
+            heading_text = clean_markdown_text(
+                heading_text
             )
 
-            # Usuwamy HTML
-            text = re.sub(
-                r"<[^>]+>",
-                "",
-                text
-            )
+            if heading_text:
 
-            output.append(
-                f"<h{level}>"
-                f"{html.escape(text)}"
-                f"</h{level}>"
-            )
+                output.append(
+                    f"<h{level}>"
+                    f"{html.escape(heading_text)}"
+                    f"</h{level}>"
+                )
 
             continue
 
         # -------------------------------------------------
-        # LISTA
+        # NAGŁÓWKI, KTÓRE TRAFILATURA MOŻE ZWRÓCIĆ
+        # Z DODATKOWYM ZNAKIEM #
         # -------------------------------------------------
 
-        unordered_match = re.match(
-            r"^[-*]\s+(.+)$",
+        heading_match = re.match(
+            r"^#{1,6}(.+?)$",
             line
         )
 
+        if heading_match and not line.startswith(
+            ("#",)
+        ):
+
+            flush_paragraph()
+            close_list()
+
+            continue
+
+        # -------------------------------------------------
+        # LISTA NIEUPORZĄDKOWANA
+        # -------------------------------------------------
+
+        unordered_match = re.match(
+            r"^[-*+]\s+(.+)$",
+            line
+        )
+
+        # -------------------------------------------------
+        # LISTA UPORZĄDKOWANA
+        # -------------------------------------------------
+
         ordered_match = re.match(
-            r"^\d+\.\s+(.+)$",
+            r"^\d+[.)]\s+(.+)$",
             line
         )
 
@@ -325,9 +374,7 @@ def markdown_to_article_html(markdown_text):
                     f"<{list_type}>"
                 )
 
-            item_text = re.sub(
-                r"\[([^\]]+)\]\([^)]+\)",
-                r"\1",
+            item_text = clean_markdown_text(
                 item_text
             )
 
@@ -346,6 +393,10 @@ def markdown_to_article_html(markdown_text):
         paragraph_buffer.append(
             line
         )
+
+    # -----------------------------------------------------
+    # DOMKNIĘCIE
+    # -----------------------------------------------------
 
     flush_paragraph()
     close_list()
@@ -568,6 +619,7 @@ def get_sitemap_urls(sitemap_url):
                             )
 
             except Exception:
+
                 continue
 
         return list(
