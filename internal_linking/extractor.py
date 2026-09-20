@@ -1,3 +1,5 @@
+import streamlit as st
+
 from .crawler import download_page
 from .content_detector import extract_content_blocks
 
@@ -12,6 +14,7 @@ def extract_article_content(url):
     """
 
     html = download_page(url)
+    st.write(len(html))
 
     cms, blocks = extract_content_blocks(html)
 
