@@ -1,7 +1,5 @@
 import re
-import html
 
-import trafilatura
 from bs4 import BeautifulSoup
 
 from .crawler import download_page
@@ -23,50 +21,78 @@ def clean_text(text):
 
 
 # =========================================================
-# USUWANIE NIEPOTRZEBNYCH ELEMENTÓW
+# ELEMENTY, KTÓRE NIE SĄ TREŚCIĄ ARTYKUŁU
 # =========================================================
 
 def remove_unwanted_elements(soup):
 
-    for element in soup.find_all(
-        [
-            "script",
-            "style",
-            "svg",
-            "noscript",
-            "iframe",
-            "form"
-        ]
-    ):
+    selectors = [
+        "script",
+        "style",
+        "svg",
+        "noscript",
+        "iframe",
+        "nav",
+        "header",
+        "footer",
+        "form",
+        ".sidebar",
+        ".widget",
+        ".comments",
+        ".comment",
+        ".related-posts",
+        ".share-buttons",
+        ".cookie",
+        ".cookies",
+    ]
 
-        element.decompose()
+    for selector in selectors:
+
+        for element in soup.select(selector):
+
+            element.decompose()
 
 
 # =========================================================
-# ZNALEZIENIE GŁÓWNEGO KONTENERA
+# ZNALEZIENIE GŁÓWNEJ TREŚCI
 # =========================================================
 
 def find_main_content(soup):
 
-    # Najczęstsze kontenery WordPress
     selectors = [
-        "article",
-        "main",
+
+        # WordPress
+        "article .entry-content",
+        "article .post-content",
+        "article .page-content",
+        "article .article-content",
+
+        # Elementor
+        ".elementor-widget-theme-post-content",
+        ".elementor-widget-text-editor",
+
+        # Gutenberg
+        ".wp-block-post-content",
+
+        # Popularne klasy
         ".entry-content",
         ".post-content",
+        ".page-content",
         ".article-content",
         ".single-content",
-        ".page-content",
-        ".content-area",
-        ".elementor-widget-theme-post-content",
-        ".wp-block-post-content"
+
+        # Ogólne
+        "article",
+        "main",
     ]
 
     candidates = []
 
     for selector in selectors:
 
-        elements = soup.select(selector)
+        elements = soup.select(
+            selector
+        )
 
         for element in elements:
 
@@ -75,36 +101,48 @@ def find_main_content(soup):
                 strip=True
             )
 
-            if len(text) >= 200:
+            if len(text) >= 300:
 
                 candidates.append(
                     element
                 )
 
-    if candidates:
+    if not candidates:
+        return None
 
-        # Wybieramy najdłuższy sensowny kontener
-        return max(
-            candidates,
-            key=lambda element: len(
-                element.get_text(
-                    " ",
-                    strip=True
-                )
+    # =====================================================
+    # WYBIERAMY NAJBARDZIEJ PRAWDOPODOBNY KONTENER
+    # =====================================================
+
+    # Nie zawsze największy element jest najlepszy,
+    # dlatego preferujemy bardziej szczegółowe selektory.
+
+    for selector in selectors:
+
+        for element in candidates:
+
+            if element in soup.select(selector):
+
+                return element
+
+    return max(
+        candidates,
+        key=lambda element: len(
+            element.get_text(
+                " ",
+                strip=True
             )
         )
-
-    return None
+    )
 
 
 # =========================================================
-# OCZYSZCZANIE GŁÓWNEJ TREŚCI
+# CZYSZCZENIE KONTENERA
 # =========================================================
 
-def clean_content_container(container):
+def clean_content(container):
 
-    # Kopia, żeby nie modyfikować przypadkiem
-    # oryginalnego dokumentu
+    # Tworzymy niezależną kopię
     content = BeautifulSoup(
         str(container),
         "html.parser"
@@ -114,27 +152,32 @@ def clean_content_container(container):
         content
     )
 
-    # Usuwamy typowe elementy nawigacyjne
-    for selector in [
-        "nav",
-        "header",
-        "footer",
-        ".sidebar",
-        ".widget",
-        ".comments",
-        ".comment",
-        ".related-posts",
-        ".share-buttons"
-    ]:
+    # =====================================================
+    # USUWAMY ELEMENTY, KTÓRE MOGĄ BYĆ WEWNĄTRZ ARTYKUŁU
+    # =====================================================
+
+    unwanted_classes = [
+        "share",
+        "social",
+        "related",
+        "author",
+        "comments",
+        "comment",
+        "newsletter",
+        "breadcrumb",
+        "breadcrumbs",
+    ]
+
+    for class_name in unwanted_classes:
 
         for element in content.select(
-            selector
+            f".{class_name}"
         ):
 
             element.decompose()
 
     # =====================================================
-    # CZYSZCZENIE TEKSTU W ELEMENTACH
+    # CZYŚCIMY TEKST
     # =====================================================
 
     for element in content.find_all(
@@ -157,14 +200,14 @@ def clean_content_container(container):
             text
         )
 
-        # Usuwamy puste elementy
         if not text:
 
             element.decompose()
 
             continue
 
-        # Czyścimy tekst z nadmiarowych spacji
+        # Usuwamy zawartość HTML wewnątrz elementu,
+        # ale zachowujemy sam element, np. H3.
         element.clear()
 
         element.append(
@@ -180,76 +223,48 @@ def clean_content_container(container):
 
 def extract_article_content(url):
 
+    # =====================================================
+    # POBRANIE STRONY
+    # =====================================================
+
     raw_html = download_page(
         url
     )
 
     # =====================================================
-    # ORYGINALNY HTML
+    # PARSOWANIE ORYGINALNEGO HTML
     # =====================================================
 
-    original_soup = BeautifulSoup(
+    soup = BeautifulSoup(
         raw_html,
         "html.parser"
     )
 
-    remove_unwanted_elements(
-        original_soup
-    )
-
     # =====================================================
-    # PRÓBA ZNALEZIENIA GŁÓWNEJ TREŚCI
+    # ZNALEZIENIE TREŚCI
     # =====================================================
 
     main_content = find_main_content(
-        original_soup
+        soup
+    )
+
+    if main_content is None:
+
+        raise ValueError(
+            "Nie udało się znaleźć głównej "
+            "treści artykułu."
+        )
+
+    # =====================================================
+    # OCZYSZCZENIE TREŚCI
+    # =====================================================
+
+    content = clean_content(
+        main_content
     )
 
     # =====================================================
-    # JEŚLI ZNALEZIONO KONTENER
-    # =====================================================
-
-    if main_content:
-
-        content = clean_content_container(
-            main_content
-        )
-
-    # =====================================================
-    # FALLBACK — TRAFILATURA
-    # =====================================================
-
-    else:
-
-        extracted_html = trafilatura.extract(
-            raw_html,
-            output_format="html",
-            include_links=False,
-            include_images=False,
-            include_tables=True,
-            include_formatting=True,
-            favor_precision=False,
-            favor_recall=True
-        )
-
-        if not extracted_html:
-
-            raise ValueError(
-                "Nie udało się wyodrębnić głównej "
-                "treści strony."
-            )
-
-        content = BeautifulSoup(
-            extracted_html,
-            "html.parser"
-        )
-
-        remove_unwanted_elements(
-            content
-        )
-
-    # =====================================================
-    # SPRAWDZENIE TREŚCI
+    # TEKST DO WALIDACJI
     # =====================================================
 
     clean_article_text = content.get_text(
