@@ -1,11 +1,6 @@
 import streamlit as st
-
 from internal_linking.ui import show_internal_linking
 
-
-# =========================================================
-# KONFIGURACJA
-# =========================================================
 
 st.set_page_config(
     page_title="SEO Tools AI",
@@ -13,10 +8,6 @@ st.set_page_config(
     layout="wide"
 )
 
-
-# =========================================================
-# CSS
-# =========================================================
 
 st.markdown(
     """
@@ -70,12 +61,6 @@ st.markdown(
         scroll-behavior: smooth;
     }
 
-    .article-preview a {
-        color: #2563eb;
-        text-decoration: underline;
-        font-weight: 500;
-    }
-
     .article-preview h1 {
         font-size: 30px;
         margin-top: 0;
@@ -114,24 +99,83 @@ st.markdown(
         padding-left: 25px;
     }
 
+    .article-preview a {
+        color: #2563eb;
+        text-decoration: underline;
+        font-weight: 500;
+    }
+
+    .candidate-table-wrapper {
+        width: 100%;
+        overflow-x: auto;
+        margin-top: 15px;
+        margin-bottom: 25px;
+    }
+
+    .candidate-table {
+        width: 100%;
+        border-collapse: collapse;
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        overflow: hidden;
+        font-size: 14px;
+    }
+
+    .candidate-table th {
+        text-align: left;
+        padding: 14px 16px;
+        background: #f9fafb;
+        border-bottom: 1px solid #e5e7eb;
+        color: #111827;
+        font-weight: 600;
+    }
+
+    .candidate-table td {
+        padding: 14px 16px;
+        border-bottom: 1px solid #e5e7eb;
+        vertical-align: top;
+        line-height: 1.7;
+    }
+
+    .candidate-table tr:last-child td {
+        border-bottom: none;
+    }
+
+    .phrase-cell {
+        width: 42%;
+        color: #111827;
+    }
+
+    .url-cell {
+        width: 58%;
+        word-break: break-word;
+    }
+
+    .url-cell a {
+        color: #2563eb;
+        text-decoration: none;
+    }
+
+    .url-cell a:hover {
+        text-decoration: underline;
+    }
+
+    .no-match {
+        color: #9ca3af;
+        font-style: italic;
+    }
+
     </style>
     """,
     unsafe_allow_html=True
 )
 
 
-# =========================================================
-# STRONA
-# =========================================================
-
 if "page" not in st.session_state:
 
     st.session_state["page"] = "home"
 
-
-# =========================================================
-# INTERNAL LINKING
-# =========================================================
 
 if st.session_state["page"] == "internal_links":
 
@@ -140,34 +184,31 @@ if st.session_state["page"] == "internal_links":
     st.stop()
 
 
-# =========================================================
-# STRONA GŁÓWNA
-# =========================================================
-
 st.markdown(
     """
     <div class="hero">
+
         <h1>SEO Tools AI</h1>
+
         <p>
             Proste narzędzia SEO wykorzystujące AI
             do codziennej pracy.
         </p>
+
     </div>
     """,
     unsafe_allow_html=True
 )
 
 
-# =========================================================
-# KAFELKI
-# =========================================================
-
 col1, col2, col3 = st.columns(3)
 
 
 with col1:
 
-    with st.container(border=True):
+    with st.container(
+        border=True
+    ):
 
         st.markdown(
             "### 🔗 Internal Linking AI"
@@ -188,16 +229,18 @@ with col1:
             use_container_width=True
         ):
 
-            st.session_state["page"] = (
-                "internal_links"
-            )
+            st.session_state[
+                "page"
+            ] = "internal_links"
 
             st.rerun()
 
 
 with col2:
 
-    with st.container(border=True):
+    with st.container(
+        border=True
+    ):
 
         st.markdown(
             "### 🔎 SEO Audit"
@@ -219,7 +262,9 @@ with col2:
 
 with col3:
 
-    with st.container(border=True):
+    with st.container(
+        border=True
+    ):
 
         st.markdown(
             "### ✍️ Content Analysis"
