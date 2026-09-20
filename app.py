@@ -113,7 +113,7 @@ with col1:
 
         st.success("DOSTĘPNE")
 
-        if st.button(
+       if st.button(
     "Otwórz narzędzie →",
     key="internal_links",
     use_container_width=True
