@@ -1,5 +1,6 @@
 import streamlit as st
 import html
+import time
 
 from .extractor import extract_article_content
 from .sitemap import (
@@ -294,10 +295,6 @@ def show_internal_linking():
                     "Strona została pobrana."
                 )
 
-                # -----------------------------------------
-                # DIAGNOSTYKA
-                # -----------------------------------------
-
                 with st.expander(
                     "Diagnostyka pobranej treści"
                 ):
@@ -468,19 +465,60 @@ def show_internal_linking():
                     )
 
                 # -------------------------------------------------
+                # LICZNIK I POSTĘP POBIERANIA
+                # -------------------------------------------------
+
+                progress_text = st.empty()
+                progress_bar = st.progress(0)
+
+                start_time = time.perf_counter()
+
+                def update_download_progress(
+                    completed,
+                    total
+                ):
+
+                    elapsed = (
+                        time.perf_counter()
+                        - start_time
+                    )
+
+                    progress_text.markdown(
+                        f"**Pobieranie stron:** "
+                        f"{completed} / {total}  •  "
+                        f"**Czas:** {elapsed:.1f} s"
+                    )
+
+                    if total > 0:
+
+                        progress_bar.progress(
+                            completed / total
+                        )
+
+                # -------------------------------------------------
                 # POBIERANIE STRON RÓWNOLEGLE
                 # -------------------------------------------------
 
-                with st.spinner(
-                    f"Pobieram "
-                    f"{len(sitemap_urls_to_download)} stron "
-                    f"równolegle..."
-                ):
-
-                    pages = download_pages(
-                        sitemap_urls_to_download,
-                        max_workers=25
+                pages = download_pages(
+                    sitemap_urls_to_download,
+                    max_workers=25,
+                    progress_callback=(
+                        update_download_progress
                     )
+                )
+
+                elapsed_total = (
+                    time.perf_counter()
+                    - start_time
+                )
+
+                progress_bar.progress(1.0)
+
+                progress_text.success(
+                    f"Pobieranie zakończone. "
+                    f"{len(sitemap_urls_to_download)} stron "
+                    f"w {elapsed_total:.1f} s."
+                )
 
                 successful_pages = [
                     page
@@ -495,7 +533,8 @@ def show_internal_linking():
                 ]
 
                 st.success(
-                    f"Pobrano {len(successful_pages)} "
+                    f"Pobrano poprawnie "
+                    f"{len(successful_pages)} "
                     f"z {len(sitemap_urls_to_download)} stron."
                 )
 
@@ -532,6 +571,11 @@ def show_internal_linking():
                     st.write(
                         f"Błędy pobierania: "
                         f"{len(failed_pages)}"
+                    )
+
+                    st.write(
+                        f"Czas pobierania: "
+                        f"{elapsed_total:.1f} s"
                     )
 
                     if failed_pages:
