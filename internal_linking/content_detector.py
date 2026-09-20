@@ -30,9 +30,6 @@ EXCLUDED_TAGS = {
 EXCLUDED_KEYWORDS = {
     "menu",
     "navigation",
-    "nav",
-    "header",
-    "footer",
     "sidebar",
     "widget",
     "cookie",
@@ -43,7 +40,6 @@ EXCLUDED_KEYWORDS = {
     "share",
     "sharing",
     "related",
-    "recommend",
     "comments",
     "comment",
     "breadcrumb",
@@ -51,7 +47,6 @@ EXCLUDED_KEYWORDS = {
     "pagination",
     "advert",
     "ads",
-    "banner",
     "newsletter",
     "login",
     "register",
@@ -61,8 +56,7 @@ EXCLUDED_KEYWORDS = {
 def detect_cms(html):
     """
     Próbuje rozpoznać CMS.
-    CMS jest tylko informacją pomocniczą.
-    Ekstrakcja treści nie zależy od konkretnego CMS-a.
+    Jest to tylko informacja pomocnicza.
     """
 
     html_lower = html.lower()
@@ -77,10 +71,7 @@ def detect_cms(html):
     if "prestashop" in html_lower:
         return "prestashop"
 
-    if (
-        "shoper" in html_lower
-        or "shoparena" in html_lower
-    ):
+    if "shoper" in html_lower:
         return "shoper"
 
     if (
@@ -89,10 +80,7 @@ def detect_cms(html):
     ):
         return "shopify"
 
-    if (
-        "/media/system/" in html_lower
-        or "joomla" in html_lower
-    ):
+    if "joomla" in html_lower:
         return "joomla"
 
     if (
@@ -104,46 +92,9 @@ def detect_cms(html):
     return "unknown"
 
 
-def _identifier(element):
-    """
-    Łączy class i id elementu.
-    """
-
-    classes = element.get("class", [])
-    element_id = element.get("id", "")
-
-    if isinstance(classes, list):
-        classes = " ".join(classes)
-
-    return f"{classes} {element_id}".lower()
-
-
-def _is_excluded(element):
-    """
-    Sprawdza element oraz jego rodziców.
-    """
-
-    current = element
-
-    while current is not None:
-
-        if getattr(current, "name", None) in EXCLUDED_TAGS:
-            return True
-
-        identifier = _identifier(current)
-
-        for keyword in EXCLUDED_KEYWORDS:
-            if keyword in identifier:
-                return True
-
-        current = current.parent
-
-    return False
-
-
 def _clean_text(element):
     """
-    Pobiera czysty tekst elementu.
+    Zwraca oczyszczony tekst elementu.
     """
 
     return " ".join(
@@ -154,10 +105,71 @@ def _clean_text(element):
     )
 
 
+def _identifier_matches(element):
+    """
+    Sprawdza class i id danego elementu.
+
+    Ważne:
+    sprawdzamy tylko konkretny element,
+    a nie wszystkich jego rodziców.
+    """
+
+    classes = element.get("class", [])
+    element_id = element.get("id", "")
+
+    if isinstance(classes, list):
+        values = classes[:]
+    else:
+        values = [str(classes)]
+
+    if element_id:
+        values.append(str(element_id))
+
+    text = " ".join(values).lower()
+
+    for keyword in EXCLUDED_KEYWORDS:
+
+        if keyword in text:
+            return True
+
+    return False
+
+
+def _is_excluded(element):
+    """
+    Sprawdza, czy sam element znajduje się w oczywiście
+    wykluczonym miejscu.
+
+    Nie sprawdzamy wszystkich rodziców pod kątem klas,
+    ponieważ mogłoby to wyciąć cały artykuł.
+    """
+
+    current = element
+
+    while current is not None:
+
+        tag_name = getattr(
+            current,
+            "name",
+            None
+        )
+
+        if tag_name in EXCLUDED_TAGS:
+            return True
+
+        current = current.parent
+
+    # Dopiero na samym elemencie sprawdzamy class/id.
+    if _identifier_matches(element):
+        return True
+
+    return False
+
+
 def _is_valid_block(element):
     """
-    Sprawdza, czy element może być fragmentem
-    głównej treści.
+    Sprawdza, czy element jest wartościowym fragmentem
+    tekstu.
     """
 
     if element.name not in CONTENT_TAGS:
@@ -171,20 +183,24 @@ def _is_valid_block(element):
     if not text:
         return False
 
-    # Bardzo krótkie elementy zwykle nie są
-    # właściwą treścią artykułu.
-    if len(text) < 20:
-        return False
+    # Nagłówki mogą być krótkie.
+    if element.name in {
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+    }:
+        return len(text) >= 3
 
-    return True
+    # Dla zwykłego tekstu wymagamy minimum znaków.
+    return len(text) >= 20
 
 
-def _get_blocks(soup):
+def _get_content_blocks(soup):
     """
-    Pobiera wszystkie potencjalne bloki treści
-    z całego dokumentu.
+    Pobiera wszystkie elementy treści z całej strony.
 
-    Nie wybiera jednego kontenera.
+    Nie wybieramy jednego kontenera.
     """
 
     blocks = []
@@ -194,12 +210,11 @@ def _get_blocks(soup):
         if not _is_valid_block(element):
             continue
 
-        # Jeżeli LI zawiera P, nie chcemy pobierać
-        # P osobno, ponieważ powstałby duplikat.
+        # Jeżeli P znajduje się w LI,
+        # nie dodajemy go drugi raz.
         if element.name == "p":
-            parent_li = element.find_parent("li")
 
-            if parent_li is not None:
+            if element.find_parent("li") is not None:
                 continue
 
         blocks.append(element)
@@ -207,71 +222,9 @@ def _get_blocks(soup):
     return blocks
 
 
-def _block_score(element):
-    """
-    Ocenia pojedynczy blok tekstu.
-
-    Wyższy wynik oznacza większe prawdopodobieństwo,
-    że jest częścią właściwego artykułu.
-    """
-
-    score = 0
-
-    text = _clean_text(element)
-
-    if element.name == "h1":
-        score += 15
-
-    elif element.name == "h2":
-        score += 12
-
-    elif element.name == "h3":
-        score += 10
-
-    elif element.name == "h4":
-        score += 8
-
-    elif element.name == "p":
-        score += 5
-
-    elif element.name == "li":
-        score += 3
-
-    elif element.name == "blockquote":
-        score += 5
-
-    # Dłuższe fragmenty są częściej właściwą treścią.
-    if len(text) >= 100:
-        score += 5
-
-    if len(text) >= 250:
-        score += 5
-
-    if len(text) >= 500:
-        score += 5
-
-    # Element znajdujący się wewnątrz article/main
-    # dostaje dodatkowy sygnał.
-    parent = element.parent
-
-    while parent is not None:
-
-        if getattr(parent, "name", None) == "article":
-            score += 15
-            break
-
-        if getattr(parent, "name", None) == "main":
-            score += 15
-            break
-
-        parent = parent.parent
-
-    return score
-
-
 def _remove_duplicates(blocks):
     """
-    Usuwa identyczne fragmenty tekstu.
+    Usuwa powtarzające się elementy.
     """
 
     result = []
@@ -295,56 +248,53 @@ def _remove_duplicates(blocks):
     return result
 
 
-def _find_content_region(blocks):
+def _calculate_content_score(blocks):
     """
-    Próbuje określić, które fragmenty należą do głównej
-    treści bez wybierania jednego kontenera.
-
-    Wykorzystujemy sąsiedztwo bloków oraz obecność nagłówków.
+    Oblicza, czy znalezione bloki wyglądają jak
+    rzeczywista treść strony.
     """
 
     if not blocks:
-        return []
+        return 0
 
-    scores = [
-        _block_score(block)
-        for block in blocks
-    ]
+    score = 0
 
-    # Minimalny próg.
-    valid = []
+    for block in blocks:
 
-    for block, score in zip(blocks, scores):
+        text = _clean_text(block)
 
-        if score >= 5:
-            valid.append(block)
+        if block.name == "h1":
+            score += 20
 
-    if not valid:
-        return blocks
+        elif block.name == "h2":
+            score += 10
 
-    # Jeżeli mamy dużo prawidłowych bloków,
-    # zachowujemy ich kolejność z dokumentu.
-    return valid
+        elif block.name == "h3":
+            score += 8
+
+        elif block.name == "h4":
+            score += 6
+
+        elif block.name == "p":
+            score += 3
+
+        elif block.name == "li":
+            score += 1
+
+        if len(text) > 200:
+            score += 2
+
+    return score
 
 
 def extract_content_blocks(html):
     """
-    Główna funkcja.
+    Główna funkcja ekstrakcji.
 
     Zwraca:
 
         cms
         blocks
-
-    blocks zawiera elementy:
-
-        H1
-        H2
-        H3
-        H4
-        P
-        LI
-        BLOCKQUOTE
     """
 
     soup = BeautifulSoup(
@@ -354,10 +304,13 @@ def extract_content_blocks(html):
 
     cms = detect_cms(html)
 
-    blocks = _get_blocks(soup)
-
-    blocks = _find_content_region(blocks)
+    blocks = _get_content_blocks(soup)
 
     blocks = _remove_duplicates(blocks)
+
+    score = _calculate_content_score(blocks)
+
+    if not blocks or score < 10:
+        return cms, []
 
     return cms, blocks
