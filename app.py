@@ -85,11 +85,14 @@ st.markdown(
         background: #ffffff;
         border: 1px solid #e5e7eb;
         border-radius: 12px;
-        padding: 35px 45px;
+        padding: 30px 40px;
         margin-top: 20px;
         color: #1f2937;
         line-height: 1.75;
         font-size: 16px;
+        height: 520px;
+        overflow-y: auto;
+        scroll-behavior: smooth;
     }
 
     .article-preview h1 {
