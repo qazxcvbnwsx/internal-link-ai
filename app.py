@@ -1,9 +1,13 @@
 import streamlit as st
+import importlib
 
 # --------------------------------------------------
 # KONFIGURACJA
 # --------------------------------------------------
-
+if st.session_state.get("page") == "internal_links":
+    import pages.internal_links
+    st.stop()
+    
 st.set_page_config(
     page_title="SEO Tools AI",
     page_icon="🔗",
