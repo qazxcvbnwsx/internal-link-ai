@@ -1,19 +1,8 @@
 import streamlit as st
 import html
-from urllib.parse import urlparse
 
 from .extractor import extract_article_content
 from .sitemap import get_sitemap_urls
-
-
-def get_domain(url):
-
-    parsed = urlparse(url)
-
-    return parsed.netloc.lower().replace(
-        "www.",
-        ""
-    )
 
 
 def show_internal_linking():
@@ -126,7 +115,7 @@ def show_internal_linking():
             try:
 
                 with st.spinner(
-                    "Pobieram i oczyszczam artykuł..."
+                    "Pobieram i analizuję artykuł..."
                 ):
 
                     article_html, stats = (
@@ -180,6 +169,14 @@ def show_internal_linking():
                         )
 
                     st.write(
+                        f"H4: {stats['h4']}"
+                    )
+
+                    st.write(
+                        f"Listy: {stats['lists']}"
+                    )
+
+                    st.write(
                         f"Znaki: {stats['characters']}"
                     )
 
@@ -218,7 +215,7 @@ def show_internal_linking():
             )
 
         # =================================================
-        # PODGLĄD
+        # PODGLĄD ARTYKUŁU
         # =================================================
 
         st.markdown(
@@ -257,38 +254,20 @@ def show_internal_linking():
             else:
 
                 st.success(
+                    f"Sitemap została poprawnie odczytana. "
                     f"Znaleziono {len(sitemap_urls)} adresów URL."
                 )
 
-                sitemap_domain = get_domain(
-                    sitemap_url
-                )
-
-                st.markdown(
-                    "### Znalezione podstrony"
-                )
+                # -----------------------------------------
+                # INFORMACJA
+                # -----------------------------------------
 
                 st.caption(
-                    f"Domena: {sitemap_domain}"
+                    "Adresy URL nie są tutaj wyświetlane. "
+                    "Zostaną wykorzystane w kolejnym etapie "
+                    "analizy do znalezienia odpowiednich "
+                    "stron do linkowania."
                 )
-
-                display_urls = sitemap_urls[:100]
-
-                for index, url in enumerate(
-                    display_urls,
-                    start=1
-                ):
-
-                    st.markdown(
-                        f"**{index}.** {url}"
-                    )
-
-                if len(sitemap_urls) > 100:
-
-                    st.info(
-                        f"Wyświetlam pierwsze 100 z "
-                        f"{len(sitemap_urls)} znalezionych URL-i."
-                    )
 
         except Exception as e:
 
