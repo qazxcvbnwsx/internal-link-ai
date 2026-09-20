@@ -209,7 +209,7 @@ def show_internal_linking():
     if analyze:
 
         # -------------------------------------------------
-        # WALIDACJA
+        # WALIDACJA ARTYKUŁU
         # -------------------------------------------------
 
         if mode == "Mam już artykuł na stronie":
@@ -231,6 +231,10 @@ def show_internal_linking():
                 )
 
                 st.stop()
+
+        # -------------------------------------------------
+        # WALIDACJA SITEMAP
+        # -------------------------------------------------
 
         if not effective_sitemap_url:
 
@@ -496,7 +500,7 @@ def show_internal_linking():
             )
 
             # -------------------------------------------------
-            # WYBÓR KANDYDATÓW
+            # WYBÓR 30 KANDYDATÓW
             # -------------------------------------------------
 
             with st.spinner(
@@ -524,7 +528,7 @@ def show_internal_linking():
             )
 
             # -------------------------------------------------
-            # TABELA
+            # TABELA KANDYDATÓW
             # -------------------------------------------------
 
             table_rows = []
@@ -554,8 +558,11 @@ def show_internal_linking():
                         "</span>"
                     )
 
-                url_html = html.escape(
-                    candidate["url"]
+                url = candidate["url"]
+
+                escaped_url = html.escape(
+                    url,
+                    quote=True
                 )
 
                 table_rows.append(
@@ -564,13 +571,14 @@ def show_internal_linking():
                         <td class="phrase-cell">
                             {phrases_html}
                         </td>
+
                         <td class="url-cell">
                             <a
-                                href="{url_html}"
+                                href="{escaped_url}"
                                 target="_blank"
                                 rel="noopener noreferrer"
                             >
-                                {url_html}
+                                {escaped_url}
                             </a>
                         </td>
                     </tr>
@@ -579,6 +587,7 @@ def show_internal_linking():
 
             table_html = f"""
             <div class="candidate-table-wrapper">
+
                 <table class="candidate-table">
 
                     <thead>
@@ -586,6 +595,7 @@ def show_internal_linking():
                             <th>
                                 Dopasowane frazy z artykułu
                             </th>
+
                             <th>
                                 URL
                             </th>
@@ -597,12 +607,12 @@ def show_internal_linking():
                     </tbody>
 
                 </table>
+
             </div>
             """
 
-            st.markdown(
-                table_html,
-                unsafe_allow_html=True
+            st.html(
+                table_html
             )
 
             # -------------------------------------------------
