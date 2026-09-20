@@ -9,6 +9,7 @@ CONTENT_TAGS = {
     "p",
     "li",
     "blockquote",
+    "div",
 }
 
 
