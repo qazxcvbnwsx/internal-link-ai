@@ -235,6 +235,10 @@ def show_internal_linking():
         # SITEMAP
         # =================================================
 
+        st.markdown(
+        "<div style='height: 30px;'></div>",
+        unsafe_allow_html=True
+        )
         try:
 
             with st.spinner(
