@@ -70,6 +70,12 @@ st.markdown(
         scroll-behavior: smooth;
     }
 
+    .article-preview a {
+        color: #2563eb;
+        text-decoration: underline;
+        font-weight: 500;
+    }
+
     .article-preview h1 {
         font-size: 30px;
         margin-top: 0;
