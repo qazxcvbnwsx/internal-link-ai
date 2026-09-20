@@ -58,13 +58,61 @@ def show_internal_linking():
     # =====================================================
 
     sitemap_url = st.text_input(
-        "URL sitemap (opcjonalnie)",
+        "URL sitemap",
         placeholder="https://twojastrona.pl/sitemap.xml",
-        help=(
-            "Przy podanym URL artykułu sitemapę spróbujemy "
-            "znaleźć automatycznie w robots.txt."
-        )
     )
+
+    if mode == "Mam już artykuł na stronie":
+
+    if st.button(
+        "🔍 Znajdź sitemapę",
+        use_container_width=True
+    ):
+
+        if not article_url.strip():
+            st.error("Najpierw podaj URL artykułu.")
+        else:
+
+            from .sitemap import find_sitemap_in_robots
+
+            with st.spinner(
+                "Sprawdzam robots.txt..."
+            ):
+
+                robots_result = find_sitemap_in_robots(
+                    article_url.strip()
+                )
+
+            if robots_result["status"] == "found":
+
+                st.session_state[
+                    "detected_sitemap"
+                ] = robots_result["sitemap_url"]
+
+                st.success(
+                    "Znaleziono sitemapę."
+                )
+
+            elif robots_result["status"] == "missing":
+
+                st.warning(
+                    "Nie znaleziono robots.txt. "
+                    "Wklej URL sitemap ręcznie."
+                )
+
+            elif robots_result["status"] == "not_listed":
+
+                st.warning(
+                    "Robots.txt istnieje, ale nie zawiera "
+                    "adresu sitemap. Wklej URL sitemap ręcznie."
+                )
+
+            else:
+
+                st.warning(
+                    "Nie udało się sprawdzić robots.txt. "
+                    "Wklej URL sitemap ręcznie."
+                )
 
     exclude_input = st.text_area(
         "Wyklucz URL-e zawierające",
