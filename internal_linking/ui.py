@@ -390,22 +390,60 @@ def show_internal_linking():
 
             sitemap_start = time.perf_counter()
 
-            with st.spinner(
-                "Odczytuję sitemapę..."
+            sitemap_progress_text = st.empty()
+
+            sitemap_progress_bar = st.progress(
+                0
+            )
+
+            def update_sitemap_progress(
+                completed,
+                total
             ):
 
-                (
-                    sitemap_urls,
-                    total_sitemap_urls,
-                    excluded_count
-                ) = get_sitemap_urls(
-                    effective_sitemap_url,
-                    exclude_fragments=exclude_fragments
+                if total <= 0:
+                    return
+
+                elapsed = (
+                    time.perf_counter()
+                    - sitemap_start
                 )
+
+                sitemap_progress_text.markdown(
+                    f"**Pobieranie sitemap:** "
+                    f"{completed} / {total} "
+                    f"• **Czas:** "
+                    f"{elapsed:.1f} s"
+                )
+
+                sitemap_progress_bar.progress(
+                    completed / total
+                )
+
+            (
+                sitemap_urls,
+                total_sitemap_urls,
+                excluded_count
+            ) = get_sitemap_urls(
+                effective_sitemap_url,
+                exclude_fragments=exclude_fragments,
+                progress_callback=(
+                    update_sitemap_progress
+                )
+            )
 
             sitemap_time = (
                 time.perf_counter()
                 - sitemap_start
+            )
+
+            sitemap_progress_bar.progress(
+                1.0
+            )
+
+            sitemap_progress_text.success(
+                f"Sitemap została odczytana "
+                f"w {sitemap_time:.2f} s."
             )
 
             if not sitemap_urls:
@@ -488,10 +526,9 @@ def show_internal_linking():
                     "w dalszej analizie."
                 )
 
-            st.caption(
-                f"Czas odczytu sitemap: "
-                f"{sitemap_time:.2f} s"
-            )
+            # -------------------------------------------------
+            # INFORMACJA
+            # -------------------------------------------------
 
             st.info(
                 "ℹ️ Z sitemap pobierane są wyłącznie "
@@ -500,7 +537,7 @@ def show_internal_linking():
             )
 
             # -------------------------------------------------
-            # WYBÓR 30 KANDYDATÓW
+            # WYBÓR KANDYDATÓW
             # -------------------------------------------------
 
             with st.spinner(
@@ -522,9 +559,8 @@ def show_internal_linking():
             )
 
             st.caption(
-                "Dobór odbywa się na podstawie "
-                "treści artykułu i adresów URL z sitemap. "
-                "Strony docelowe nie są odwiedzane."
+                "Każda fraza jest przypisywana "
+                "tylko do jednego URL-a."
             )
 
             # -------------------------------------------------
@@ -554,11 +590,13 @@ def show_internal_linking():
 
                     phrases_html = (
                         '<span class="no-match">'
-                        "brak bezpośredniej frazy"
+                        "brak unikalnej frazy"
                         "</span>"
                     )
 
-                url = candidate["url"]
+                url = candidate[
+                    "url"
+                ]
 
                 escaped_url = html.escape(
                     url,
@@ -568,11 +606,13 @@ def show_internal_linking():
                 table_rows.append(
                     f"""
                     <tr>
+
                         <td class="phrase-cell">
                             {phrases_html}
                         </td>
 
                         <td class="url-cell">
+
                             <a
                                 href="{escaped_url}"
                                 target="_blank"
@@ -580,7 +620,9 @@ def show_internal_linking():
                             >
                                 {escaped_url}
                             </a>
+
                         </td>
+
                     </tr>
                     """
                 )
@@ -591,7 +633,9 @@ def show_internal_linking():
                 <table class="candidate-table">
 
                     <thead>
+
                         <tr>
+
                             <th>
                                 Dopasowane frazy z artykułu
                             </th>
@@ -599,7 +643,9 @@ def show_internal_linking():
                             <th>
                                 URL
                             </th>
+
                         </tr>
+
                     </thead>
 
                     <tbody>
