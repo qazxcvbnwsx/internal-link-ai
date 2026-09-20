@@ -181,9 +181,68 @@ if st.session_state["page"] == "internal_links":
 
         else:
 
-            st.success(
-                "Dane są poprawne. W kolejnym kroku uruchomimy właściwą analizę."
+    import requests
+    from bs4 import BeautifulSoup
+
+    try:
+        response = requests.get(
+            article_url,
+            timeout=15,
+            headers={
+                "User-Agent": "Mozilla/5.0"
+            }
+        )
+
+        response.raise_for_status()
+
+        soup = BeautifulSoup(response.text, "html.parser")
+
+        # Usuwamy elementy, które nie są treścią artykułu
+        for element in soup([
+            "script",
+            "style",
+            "nav",
+            "footer",
+            "header",
+            "aside"
+        ]):
+            element.decompose()
+
+        # Szukamy głównej treści strony
+        main = soup.find("main")
+
+        if main:
+            content = main.get_text(
+                separator=" ",
+                strip=True
             )
+        else:
+            content = soup.get_text(
+                separator=" ",
+                strip=True
+            )
+
+        st.success("Strona została pobrana.")
+
+        st.markdown("### Pobrana treść")
+
+        st.text_area(
+            "Tekst znaleziony na stronie:",
+            content,
+            height=500
+        )
+
+    except requests.RequestException as e:
+
+        st.error(
+            f"Nie udało się pobrać strony: {e}"
+        )
+
+    except Exception as e:
+
+        st.error(
+            f"Wystąpił błąd podczas analizy: {e}"
+        )
 
     st.stop()
 
