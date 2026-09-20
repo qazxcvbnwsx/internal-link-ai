@@ -268,7 +268,8 @@ def show_internal_linking():
             ):
 
                 sitemap_urls = get_sitemap_urls(
-                    sitemap_url
+                    sitemap_url,
+                    exclude_fragments=exclude_fragments
                 )
 
             if not sitemap_urls:
