@@ -62,6 +62,22 @@ def show_internal_linking():
         placeholder="https://twojastrona.pl/sitemap.xml"
     )
 
+    exclude_input = st.text_area(
+        "Wyklucz URL-e zawierające",
+        placeholder=(
+            "/pl/p/\n"
+            "/produkt/\n"
+            "/tag/\n"
+            "/autor/"
+        ),
+        height=100,
+        help=(
+            "Wpisz fragmenty URL-i, które mają zostać "
+            "pominięte podczas analizy. Każdy fragment "
+            "w osobnej linii."
+        )
+    )
+
     # =====================================================
     # ANALIZA
     # =====================================================
