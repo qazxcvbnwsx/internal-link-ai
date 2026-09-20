@@ -171,28 +171,77 @@ def show_internal_linking():
     )
 
     # -------------------------------------------------
-    # WYKLUCZENIA URL
+    # FILTROWANIE URL
     # -------------------------------------------------
 
-    exclude_input = st.text_area(
-        "Wyklucz URL-e zawierające",
-        placeholder=(
+    st.markdown(
+        "### Filtrowanie adresów URL"
+    )
+
+    filter_mode_label = st.radio(
+        "Wybierz sposób filtrowania:",
+        [
+            "Wyklucz adresy zawierające",
+            "Szukaj tylko adresów zawierających",
+        ],
+        horizontal=True
+    )
+
+    if (
+        filter_mode_label
+        == "Wyklucz adresy zawierające"
+    ):
+
+        filter_mode = "exclude"
+
+        filter_label = (
+            "Wyklucz URL-e zawierające"
+        )
+
+        filter_help = (
+            "Wpisz fragmenty URL-i, które mają "
+            "zostać pominięte. Każdy fragment "
+            "w osobnej linii."
+        )
+
+        filter_placeholder = (
             "/pl/p/\n"
             "/produkt/\n"
             "/tag/\n"
             "/autor/"
-        ),
-        height=100,
-        help=(
-            "Wpisz fragmenty URL-i, które mają zostać "
-            "pominięte podczas analizy. "
-            "Każdy fragment wpisz w osobnej linii."
         )
+
+    else:
+
+        filter_mode = "include"
+
+        filter_label = (
+            "Szukaj tylko adresów zawierających"
+        )
+
+        filter_help = (
+            "Wpisz fragmenty URL-i, które mają "
+            "zostać znalezione. Zostaną zachowane "
+            "tylko URL-e zawierające przynajmniej "
+            "jeden z podanych fragmentów."
+        )
+
+        filter_placeholder = (
+            "category\n"
+            "/c/\n"
+            "/blog/"
+        )
+
+    filter_input = st.text_area(
+        filter_label,
+        placeholder=filter_placeholder,
+        height=100,
+        help=filter_help
     )
 
-    exclude_fragments = [
+    filter_fragments = [
         line.strip()
-        for line in exclude_input.splitlines()
+        for line in filter_input.splitlines()
         if line.strip()
     ]
 
@@ -286,24 +335,28 @@ def show_internal_linking():
                     )
 
                     with col1:
+
                         st.metric(
                             "H1",
                             stats["h1"]
                         )
 
                     with col2:
+
                         st.metric(
                             "H2",
                             stats["h2"]
                         )
 
                     with col3:
+
                         st.metric(
                             "H3",
                             stats["h3"]
                         )
 
                     with col4:
+
                         st.metric(
                             "Akapity",
                             stats["paragraphs"]
@@ -423,10 +476,11 @@ def show_internal_linking():
             (
                 sitemap_urls,
                 total_sitemap_urls,
-                excluded_count
+                filtered_out_count
             ) = get_sitemap_urls(
                 effective_sitemap_url,
-                exclude_fragments=exclude_fragments,
+                filter_fragments=filter_fragments,
+                filter_mode=filter_mode,
                 progress_callback=(
                     update_sitemap_progress
                 )
@@ -450,7 +504,7 @@ def show_internal_linking():
 
                 st.warning(
                     "Nie znaleziono żadnych URL-i "
-                    "w sitemapie po zastosowaniu wykluczeń."
+                    "spełniających ustawione filtry."
                 )
 
                 st.stop()
@@ -508,8 +562,8 @@ def show_internal_linking():
             with col2:
 
                 st.metric(
-                    "Wykluczonych",
-                    excluded_count
+                    "Odfiltrowanych",
+                    filtered_out_count
                 )
 
             with col3:
@@ -525,10 +579,6 @@ def show_internal_linking():
                     "Aktualny artykuł został pominięty "
                     "w dalszej analizie."
                 )
-
-            # -------------------------------------------------
-            # INFORMACJA
-            # -------------------------------------------------
 
             st.info(
                 "ℹ️ Z sitemap pobierane są wyłącznie "
@@ -564,7 +614,7 @@ def show_internal_linking():
             )
 
             # -------------------------------------------------
-            # TABELA KANDYDATÓW
+            # TABELA
             # -------------------------------------------------
 
             table_rows = []
@@ -627,39 +677,48 @@ def show_internal_linking():
                     """
                 )
 
-            table_html = f"""
-            <div class="candidate-table-wrapper">
+            if table_rows:
 
-                <table class="candidate-table">
+                table_html = f"""
+                <div class="candidate-table-wrapper">
 
-                    <thead>
+                    <table class="candidate-table">
 
-                        <tr>
+                        <thead>
 
-                            <th>
-                                Dopasowane frazy z artykułu
-                            </th>
+                            <tr>
 
-                            <th>
-                                URL
-                            </th>
+                                <th>
+                                    Dopasowane frazy z artykułu
+                                </th>
 
-                        </tr>
+                                <th>
+                                    URL
+                                </th>
 
-                    </thead>
+                            </tr>
 
-                    <tbody>
-                        {"".join(table_rows)}
-                    </tbody>
+                        </thead>
 
-                </table>
+                        <tbody>
+                            {"".join(table_rows)}
+                        </tbody>
 
-            </div>
-            """
+                    </table>
 
-            st.html(
-                table_html
-            )
+                </div>
+                """
+
+                st.html(
+                    table_html
+                )
+
+            else:
+
+                st.warning(
+                    "Nie znaleziono URL-i z odpowiednimi "
+                    "frazami w artykule."
+                )
 
             # -------------------------------------------------
             # SZCZEGÓŁY SELEKCJI
