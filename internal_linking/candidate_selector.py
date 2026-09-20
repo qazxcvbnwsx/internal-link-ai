@@ -132,8 +132,7 @@ def normalize_text(text):
     """
     Normalizuje tekst:
     - małe litery,
-    - usuwa polskie znaki diakrytyczne,
-    - usuwa znaki specjalne.
+    - usuwa polskie znaki diakrytyczne.
     """
 
     text = text.lower()
@@ -154,7 +153,7 @@ def normalize_text(text):
 
 def normalize_token(token):
     """
-    Normalizuje pojedynczy token.
+    Normalizuje pojedyncze słowo.
     """
 
     token = normalize_text(
@@ -170,16 +169,16 @@ def normalize_token(token):
 
 def tokenize_text(text):
     """
-    Dzieli tekst na słowa.
+    Zwraca znormalizowane słowa.
     """
 
-    text = normalize_text(
+    normalized = normalize_text(
         text
     )
 
     raw_tokens = re.findall(
         r"[a-z0-9]+",
-        text
+        normalized
     )
 
     tokens = []
@@ -199,14 +198,353 @@ def tokenize_text(text):
     return tokens
 
 
+def tokenize_with_surface(text):
+    """
+    Zwraca pary:
+        (znormalizowane_słowo, oryginalne_słowo)
+    """
+
+    raw_tokens = re.findall(
+        r"[A-Za-zĄąĆćĘęŁłŃńÓóŚśŹźŻż0-9]+",
+        text
+    )
+
+    result = []
+
+    for raw_token in raw_tokens:
+
+        normalized = normalize_token(
+            raw_token
+        )
+
+        if len(normalized) < 4:
+            continue
+
+        if normalized in STOPWORDS:
+            continue
+
+        result.append(
+            (
+                normalized,
+                raw_token
+            )
+        )
+
+    return result
+
+
+def tokens_are_similar(
+    token_a,
+    token_b
+):
+    """
+    Proste sprawdzenie podobieństwa słów.
+
+    Pozwala traktować np.:
+        okular
+        okulary
+        okularach
+
+    jako potencjalnie powiązane.
+    """
+
+    if token_a == token_b:
+        return True
+
+    if len(token_a) < 5 or len(token_b) < 5:
+        return False
+
+    shorter, longer = sorted(
+        [
+            token_a,
+            token_b
+        ],
+        key=len
+    )
+
+    return longer.startswith(
+        shorter[:5]
+    )
+
+
+def _extract_phrase_candidates(
+    soup
+):
+    """
+    Tworzy listę potencjalnych fraz z artykułu.
+
+    Największą wagę mają:
+        - H1
+        - H2
+        - H3
+        - H4
+
+    Następnie wykorzystywane są również
+    naturalne frazy 2- i 3-wyrazowe
+    z treści.
+    """
+
+    phrases = []
+
+    # -------------------------------------------------
+    # FRAZY Z NAGŁÓWKÓW
+    # -------------------------------------------------
+
+    for heading in soup.find_all(
+        [
+            "h1",
+            "h2",
+            "h3",
+            "h4",
+        ]
+    ):
+
+        heading_text = " ".join(
+            heading.get_text(
+                " ",
+                strip=True
+            ).split()
+        )
+
+        tokens = tokenize_with_surface(
+            heading_text
+        )
+
+        if not tokens:
+            continue
+
+        normalized_tokens = [
+            item[0]
+            for item in tokens
+        ]
+
+        surface_tokens = [
+            item[1]
+            for item in tokens
+        ]
+
+        # Cały nagłówek jako fraza
+        if len(surface_tokens) >= 2:
+
+            phrases.append(
+                {
+                    "text": " ".join(
+                        surface_tokens
+                    ),
+                    "tokens": normalized_tokens,
+                    "weight": 10,
+                }
+            )
+
+        # 2-gramy
+        for i in range(
+            len(tokens) - 1
+        ):
+
+            phrase_tokens = [
+                tokens[i],
+                tokens[i + 1]
+            ]
+
+            phrases.append(
+                {
+                    "text": " ".join(
+                        item[1]
+                        for item in phrase_tokens
+                    ),
+                    "tokens": [
+                        item[0]
+                        for item in phrase_tokens
+                    ],
+                    "weight": 8,
+                }
+            )
+
+        # 3-gramy
+        for i in range(
+            len(tokens) - 2
+        ):
+
+            phrase_tokens = [
+                tokens[i],
+                tokens[i + 1],
+                tokens[i + 2]
+            ]
+
+            phrases.append(
+                {
+                    "text": " ".join(
+                        item[1]
+                        for item in phrase_tokens
+                    ),
+                    "tokens": [
+                        item[0]
+                        for item in phrase_tokens
+                    ],
+                    "weight": 9,
+                }
+            )
+
+    # -------------------------------------------------
+    # FRAZY Z TREŚCI
+    # -------------------------------------------------
+
+    paragraphs = soup.find_all(
+        [
+            "p",
+            "li",
+            "blockquote",
+        ]
+    )
+
+    body_counter = Counter()
+
+    body_phrases = {}
+
+    for paragraph in paragraphs:
+
+        paragraph_text = " ".join(
+            paragraph.get_text(
+                " ",
+                strip=True
+            ).split()
+        )
+
+        tokens = tokenize_with_surface(
+            paragraph_text
+        )
+
+        if not tokens:
+            continue
+
+        normalized_tokens = [
+            item[0]
+            for item in tokens
+        ]
+
+        surface_tokens = [
+            item[1]
+            for item in tokens
+        ]
+
+        # 2-gramy
+        for i in range(
+            len(tokens) - 1
+        ):
+
+            phrase_tokens = [
+                tokens[i],
+                tokens[i + 1]
+            ]
+
+            normalized_phrase = tuple(
+                item[0]
+                for item in phrase_tokens
+            )
+
+            surface_phrase = " ".join(
+                item[1]
+                for item in phrase_tokens
+            )
+
+            body_counter[
+                normalized_phrase
+            ] += 1
+
+            body_phrases[
+                normalized_phrase
+            ] = surface_phrase
+
+        # 3-gramy
+        for i in range(
+            len(tokens) - 2
+        ):
+
+            phrase_tokens = [
+                tokens[i],
+                tokens[i + 1],
+                tokens[i + 2]
+            ]
+
+            normalized_phrase = tuple(
+                item[0]
+                for item in phrase_tokens
+            )
+
+            surface_phrase = " ".join(
+                item[1]
+                for item in phrase_tokens
+            )
+
+            body_counter[
+                normalized_phrase
+            ] += 1
+
+            body_phrases[
+                normalized_phrase
+            ] = surface_phrase
+
+    for phrase_tokens, count in body_counter.most_common(
+        80
+    ):
+
+        if count < 1:
+            continue
+
+        phrases.append(
+            {
+                "text": body_phrases[
+                    phrase_tokens
+                ],
+                "tokens": list(
+                    phrase_tokens
+                ),
+                "weight": min(
+                    6,
+                    2 + count
+                ),
+            }
+        )
+
+    return phrases
+
+
+def _remove_duplicate_phrases(
+    phrases
+):
+    """
+    Usuwa identyczne frazy.
+    """
+
+    result = []
+    seen = set()
+
+    for phrase in phrases:
+
+        key = normalize_text(
+            phrase["text"]
+        )
+
+        if key in seen:
+            continue
+
+        seen.add(
+            key
+        )
+
+        result.append(
+            phrase
+        )
+
+    return result
+
+
 def extract_article_keywords(
     article_html,
     max_keywords=40
 ):
     """
-    Wyciąga najważniejsze słowa z artykułu.
-
-    Nagłówki otrzymują większą wagę.
+    Zwraca najważniejsze słowa artykułu.
     """
 
     soup = BeautifulSoup(
@@ -215,10 +553,6 @@ def extract_article_keywords(
     )
 
     counter = Counter()
-
-    # -------------------------------------------------
-    # ZWYKŁA TREŚĆ
-    # -------------------------------------------------
 
     body_text = soup.get_text(
         " ",
@@ -230,10 +564,6 @@ def extract_article_keywords(
     ):
 
         counter[token] += 1
-
-    # -------------------------------------------------
-    # NAGŁÓWKI
-    # -------------------------------------------------
 
     for heading in soup.find_all(
         [
@@ -249,11 +579,9 @@ def extract_article_keywords(
             strip=True
         )
 
-        heading_tokens = tokenize_text(
+        for token in tokenize_text(
             heading_text
-        )
-
-        for token in heading_tokens:
+        ):
 
             counter[token] += 8
 
@@ -270,7 +598,7 @@ def extract_existing_links(
     article_html
 ):
     """
-    Zwraca URL-e, do których artykuł już linkuje.
+    Pobiera istniejące linki z artykułu.
     """
 
     soup = BeautifulSoup(
@@ -314,10 +642,8 @@ def _url_tokens(url):
         unquote(url)
     )
 
-    path = parsed.path
-
     normalized_path = normalize_text(
-        path
+        parsed.path
     )
 
     raw_tokens = re.findall(
@@ -342,50 +668,47 @@ def _url_tokens(url):
     return tokens
 
 
-def _tokens_are_similar(
-    token_a,
-    token_b
+def _phrase_matches_url(
+    phrase,
+    url_tokens
 ):
     """
-    Sprawdza proste podobieństwo słów.
-
-    Dzięki temu np.
-        okular
-        okulary
-        okularach
-
-    mogą zostać potraktowane jako
-    potencjalnie powiązane.
-
-    Nie jest to pełna analiza językowa.
+    Sprawdza, ile słów z frazy
+    pasuje do słów URL.
     """
 
-    if token_a == token_b:
-        return True
+    phrase_tokens = phrase[
+        "tokens"
+    ]
 
-    if len(token_a) < 5 or len(token_b) < 5:
-        return False
+    if not phrase_tokens:
+        return 0
 
-    shorter, longer = sorted(
-        [
-            token_a,
-            token_b
-        ],
-        key=len
-    )
+    matched = 0
 
-    return longer.startswith(
-        shorter[:5]
-    )
+    for phrase_token in phrase_tokens:
+
+        for url_token in url_tokens:
+
+            if tokens_are_similar(
+                phrase_token,
+                url_token
+            ):
+
+                matched += 1
+                break
+
+    return matched
 
 
-def _score_url(
+def _score_url_and_phrases(
     url,
+    phrases,
     keyword_weights
 ):
     """
-    Oblicza wstępne dopasowanie URL
-    do tematu artykułu.
+    Oblicza wynik URL oraz zwraca
+    pasujące frazy z artykułu.
     """
 
     url_tokens = _url_tokens(
@@ -393,45 +716,118 @@ def _score_url(
     )
 
     if not url_tokens:
-        return 0
+
+        return 0, []
 
     score = 0
+
+    matched_phrases = []
+
+    # -------------------------------------------------
+    # DOPASOWANIE FRAZ
+    # -------------------------------------------------
+
+    for phrase in phrases:
+
+        matched_count = _phrase_matches_url(
+            phrase,
+            url_tokens
+        )
+
+        if matched_count == 0:
+            continue
+
+        phrase_length = len(
+            phrase["tokens"]
+        )
+
+        # Pełne dopasowanie frazy
+        if (
+            phrase_length >= 2
+            and matched_count == phrase_length
+        ):
+
+            phrase_score = (
+                phrase["weight"]
+                * matched_count
+                * 2
+            )
+
+        else:
+
+            phrase_score = (
+                phrase["weight"]
+                * matched_count
+            )
+
+        score += phrase_score
+
+        matched_phrases.append(
+            {
+                "text": phrase["text"],
+                "score": phrase_score,
+            }
+        )
+
+    # -------------------------------------------------
+    # DODATKOWE DOPASOWANIE SŁÓW
+    # -------------------------------------------------
 
     for url_token in set(
         url_tokens
     ):
 
-        best_match_score = 0
+        best_word_score = 0
 
         for keyword, weight in keyword_weights.items():
 
             if url_token == keyword:
 
-                best_match_score = max(
-                    best_match_score,
+                best_word_score = max(
+                    best_word_score,
                     weight * 3
                 )
 
-            elif _tokens_are_similar(
+            elif tokens_are_similar(
                 url_token,
                 keyword
             ):
 
-                best_match_score = max(
-                    best_match_score,
+                best_word_score = max(
+                    best_word_score,
                     weight
                 )
 
-        score += best_match_score
+        score += best_word_score
 
-    # Premia za krótszy, konkretniejszy URL.
-    if len(url_tokens) <= 2:
-        score += 2
+    # -------------------------------------------------
+    # USUNIĘCIE POWTARZAJĄCYCH SIĘ FRAZ
+    # -------------------------------------------------
 
-    elif len(url_tokens) == 3:
-        score += 1
+    unique_phrases = []
+    seen = set()
 
-    return score
+    for phrase in sorted(
+        matched_phrases,
+        key=lambda item: -item["score"]
+    ):
+
+        key = normalize_text(
+            phrase["text"]
+        )
+
+        if key in seen:
+            continue
+
+        seen.add(
+            key
+        )
+
+        unique_phrases.append(
+            phrase
+        )
+
+    return score, unique_phrases
 
 
 def _normalize_url(
@@ -456,10 +852,6 @@ def filter_existing_links(
     """
     Usuwa URL-e, które są już podlinkowane
     w analizowanym artykule.
-
-    Obsługuje:
-    - pełne URL-e,
-    - względne URL-e.
     """
 
     existing_links = (
@@ -469,6 +861,7 @@ def filter_existing_links(
     )
 
     if not existing_links:
+
         return (
             urls,
             0
@@ -514,18 +907,13 @@ def select_candidate_urls(
     limit=30
 ):
     """
-    Wybiera najbardziej prawdopodobne URL-e
-    do dalszej analizy.
+    Wybiera 30 najbardziej pasujących URL-i.
 
-    NIE odwiedza żadnego URL-a.
+    Nie odwiedza żadnego URL-a.
 
     Analizuje wyłącznie:
-        - treść artykułu,
-        - listę URL-i z sitemap.
-
-    Zwraca:
-        selected_urls
-        diagnostics
+        - artykuł,
+        - URL-e z sitemap.
     """
 
     if not urls:
@@ -543,7 +931,7 @@ def select_candidate_urls(
         )
 
     # -------------------------------------------------
-    # USUNIĘCIE JUŻ ISTNIEJĄCYCH LINKÓW
+    # USUNIĘCIE ISTNIEJĄCYCH LINKÓW
     # -------------------------------------------------
 
     (
@@ -579,6 +967,23 @@ def select_candidate_urls(
         ] = weight
 
     # -------------------------------------------------
+    # FRAZY
+    # -------------------------------------------------
+
+    soup = BeautifulSoup(
+        article_html,
+        "lxml"
+    )
+
+    phrases = _extract_phrase_candidates(
+        soup
+    )
+
+    phrases = _remove_duplicate_phrases(
+        phrases
+    )
+
+    # -------------------------------------------------
     # OCENA URL-I
     # -------------------------------------------------
 
@@ -588,44 +993,50 @@ def select_candidate_urls(
         eligible_urls
     ):
 
-        score = _score_url(
-            url,
-            keyword_weights
-        )
-
-        scored_urls.append(
-            (
-                score,
-                index,
-                url
+        score, matched_phrases = (
+            _score_url_and_phrases(
+                url,
+                phrases,
+                keyword_weights
             )
         )
 
-    # Najpierw najwyższy wynik,
-    # przy remisie zachowujemy kolejność sitemap.
+        scored_urls.append(
+            {
+                "score": score,
+                "index": index,
+                "url": url,
+                "matched_phrases": matched_phrases,
+            }
+        )
+
+    # -------------------------------------------------
+    # SORTOWANIE
+    # -------------------------------------------------
+
     scored_urls.sort(
         key=lambda item: (
-            -item[0],
-            item[1]
+            -item["score"],
+            item["index"]
         )
     )
 
     matched_urls = [
         item
         for item in scored_urls
-        if item[0] > 0
+        if item["score"] > 0
     ]
 
-    selected = (
-        matched_urls[:limit]
-    )
+    selected = matched_urls[
+        :limit
+    ]
 
-    # Jeżeli dopasowanych URL-i jest mniej niż 30,
-    # dokładamy kolejne URL-e z sitemap.
+    # Jeżeli mamy mniej niż 30
+    # dopasowanych URL-i, uzupełniamy listę.
     if len(selected) < limit:
 
         selected_ids = {
-            item[1]
+            item["index"]
             for item in selected
         }
 
@@ -634,7 +1045,7 @@ def select_candidate_urls(
             if len(selected) >= limit:
                 break
 
-            if item[1] in selected_ids:
+            if item["index"] in selected_ids:
                 continue
 
             selected.append(
@@ -642,11 +1053,24 @@ def select_candidate_urls(
             )
 
             selected_ids.add(
-                item[1]
+                item["index"]
             )
 
     selected_urls = [
-        item[2]
+        item["url"]
+        for item in selected
+    ]
+
+    candidate_matches = [
+        {
+            "url": item["url"],
+            "matched_phrases": [
+                phrase["text"]
+                for phrase
+                in item["matched_phrases"][:6]
+            ],
+            "score": item["score"],
+        }
         for item in selected
     ]
 
@@ -665,6 +1089,7 @@ def select_candidate_urls(
             removed_existing_links
         ),
         "keywords": keywords,
+        "candidate_matches": candidate_matches,
     }
 
     return (
