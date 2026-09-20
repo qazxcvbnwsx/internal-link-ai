@@ -7,11 +7,11 @@ from bs4 import BeautifulSoup
 from .crawler import download_page
 
 
+# =========================================================
+# CZYSZCZENIE TEKSTU
+# =========================================================
+
 def clean_text(text):
-    """
-    Czyści tekst z nadmiarowych spacji
-    i prostych elementów Markdown.
-    """
 
     text = re.sub(
         r"\s+",
@@ -22,107 +22,237 @@ def clean_text(text):
     return text.strip()
 
 
-def extract_article_content(url):
+# =========================================================
+# USUWANIE NIEPOTRZEBNYCH ELEMENTÓW
+# =========================================================
 
-    raw_html = download_page(url)
-
-    # =====================================================
-    # PRÓBA WYODRĘBNIENIA GŁÓWNEJ TREŚCI
-    # =====================================================
-
-    extracted_html = trafilatura.extract(
-        raw_html,
-        output_format="html",
-        include_links=False,
-        include_images=False,
-        include_tables=True,
-        include_formatting=True,
-        favor_precision=False,
-        favor_recall=True
-    )
-
-    if not extracted_html:
-
-        raise ValueError(
-            "Nie udało się wyodrębnić głównej "
-            "treści strony."
-        )
-
-    # =====================================================
-    # PARSOWANIE HTML
-    # =====================================================
-
-    soup = BeautifulSoup(
-        extracted_html,
-        "html.parser"
-    )
-
-    # =====================================================
-    # USUWANIE ŚMIECI
-    # =====================================================
+def remove_unwanted_elements(soup):
 
     for element in soup.find_all(
-        ["script", "style", "svg", "noscript"]
+        [
+            "script",
+            "style",
+            "svg",
+            "noscript",
+            "iframe",
+            "form"
+        ]
     ):
 
         element.decompose()
 
-    # =====================================================
-    # NAGŁÓWKI
-    # =====================================================
 
-    headings = soup.find_all(
-        ["h1", "h2", "h3", "h4"]
-    )
+# =========================================================
+# ZNALEZIENIE GŁÓWNEGO KONTENERA
+# =========================================================
 
-    # =====================================================
-    # AKAPITY
-    # =====================================================
+def find_main_content(soup):
 
-    paragraphs = soup.find_all("p")
+    # Najczęstsze kontenery WordPress
+    selectors = [
+        "article",
+        "main",
+        ".entry-content",
+        ".post-content",
+        ".article-content",
+        ".single-content",
+        ".page-content",
+        ".content-area",
+        ".elementor-widget-theme-post-content",
+        ".wp-block-post-content"
+    ]
 
-    # =====================================================
-    # LISTY
-    # =====================================================
+    candidates = []
 
-    lists = soup.find_all(
-        ["ul", "ol"]
-    )
+    for selector in selectors:
 
-    # =====================================================
-    # CZYSZCZENIE TEKSTU
-    # =====================================================
+        elements = soup.select(selector)
 
-    for element in soup.find_all(True):
-
-        if element.name in [
-            "h1",
-            "h2",
-            "h3",
-            "h4",
-            "p",
-            "li"
-        ]:
+        for element in elements:
 
             text = element.get_text(
                 " ",
                 strip=True
             )
 
-            text = clean_text(text)
+            if len(text) >= 200:
 
-            element.clear()
-
-            if text:
-                element.append(
-                    text
+                candidates.append(
+                    element
                 )
 
+    if candidates:
+
+        # Wybieramy najdłuższy sensowny kontener
+        return max(
+            candidates,
+            key=lambda element: len(
+                element.get_text(
+                    " ",
+                    strip=True
+                )
+            )
+        )
+
+    return None
+
+
+# =========================================================
+# OCZYSZCZANIE GŁÓWNEJ TREŚCI
+# =========================================================
+
+def clean_content_container(container):
+
+    # Kopia, żeby nie modyfikować przypadkiem
+    # oryginalnego dokumentu
+    content = BeautifulSoup(
+        str(container),
+        "html.parser"
+    )
+
+    remove_unwanted_elements(
+        content
+    )
+
+    # Usuwamy typowe elementy nawigacyjne
+    for selector in [
+        "nav",
+        "header",
+        "footer",
+        ".sidebar",
+        ".widget",
+        ".comments",
+        ".comment",
+        ".related-posts",
+        ".share-buttons"
+    ]:
+
+        for element in content.select(
+            selector
+        ):
+
+            element.decompose()
+
     # =====================================================
-    # TEKST CAŁEGO ARTYKUŁU
+    # CZYSZCZENIE TEKSTU W ELEMENTACH
     # =====================================================
 
-    clean_article_text = soup.get_text(
+    for element in content.find_all(
+        [
+            "h1",
+            "h2",
+            "h3",
+            "h4",
+            "p",
+            "li"
+        ]
+    ):
+
+        text = element.get_text(
+            " ",
+            strip=True
+        )
+
+        text = clean_text(
+            text
+        )
+
+        # Usuwamy puste elementy
+        if not text:
+
+            element.decompose()
+
+            continue
+
+        # Czyścimy tekst z nadmiarowych spacji
+        element.clear()
+
+        element.append(
+            text
+        )
+
+    return content
+
+
+# =========================================================
+# GŁÓWNA FUNKCJA
+# =========================================================
+
+def extract_article_content(url):
+
+    raw_html = download_page(
+        url
+    )
+
+    # =====================================================
+    # ORYGINALNY HTML
+    # =====================================================
+
+    original_soup = BeautifulSoup(
+        raw_html,
+        "html.parser"
+    )
+
+    remove_unwanted_elements(
+        original_soup
+    )
+
+    # =====================================================
+    # PRÓBA ZNALEZIENIA GŁÓWNEJ TREŚCI
+    # =====================================================
+
+    main_content = find_main_content(
+        original_soup
+    )
+
+    # =====================================================
+    # JEŚLI ZNALEZIONO KONTENER
+    # =====================================================
+
+    if main_content:
+
+        content = clean_content_container(
+            main_content
+        )
+
+    # =====================================================
+    # FALLBACK — TRAFILATURA
+    # =====================================================
+
+    else:
+
+        extracted_html = trafilatura.extract(
+            raw_html,
+            output_format="html",
+            include_links=False,
+            include_images=False,
+            include_tables=True,
+            include_formatting=True,
+            favor_precision=False,
+            favor_recall=True
+        )
+
+        if not extracted_html:
+
+            raise ValueError(
+                "Nie udało się wyodrębnić głównej "
+                "treści strony."
+            )
+
+        content = BeautifulSoup(
+            extracted_html,
+            "html.parser"
+        )
+
+        remove_unwanted_elements(
+            content
+        )
+
+    # =====================================================
+    # SPRAWDZENIE TREŚCI
+    # =====================================================
+
+    clean_article_text = content.get_text(
         " ",
         strip=True
     )
@@ -139,28 +269,29 @@ def extract_article_content(url):
     # =====================================================
 
     stats = {
+
         "h1": len(
-            soup.find_all("h1")
+            content.find_all("h1")
         ),
 
         "h2": len(
-            soup.find_all("h2")
+            content.find_all("h2")
         ),
 
         "h3": len(
-            soup.find_all("h3")
+            content.find_all("h3")
         ),
 
         "h4": len(
-            soup.find_all("h4")
+            content.find_all("h4")
         ),
 
         "paragraphs": len(
-            soup.find_all("p")
+            content.find_all("p")
         ),
 
         "lists": len(
-            soup.find_all(
+            content.find_all(
                 ["ul", "ol"]
             )
         ),
@@ -170,4 +301,12 @@ def extract_article_content(url):
         )
     }
 
-    return str(soup), stats
+    # =====================================================
+    # HTML DO PODGLĄDU
+    # =====================================================
+
+    article_html = str(
+        content
+    )
+
+    return article_html, stats
