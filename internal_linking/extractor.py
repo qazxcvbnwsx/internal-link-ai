@@ -1,315 +1,105 @@
-import re
-
-from bs4 import BeautifulSoup
-
 from .crawler import download_page
+from .content_detector import extract_content_blocks
 
 
-# =========================================================
-# CZYSZCZENIE TEKSTU
-# =========================================================
+def extract_article_content(url):
+    """
+    Pobiera stronę i wyciąga główną treść artykułu.
 
-def clean_text(text):
+    Zwraca:
+        article_html
+        stats
+    """
 
-    text = re.sub(
-        r"\s+",
-        " ",
-        text
-    )
+    html = download_page(url)
 
-    return text.strip()
+    cms, blocks = extract_content_blocks(html)
 
-
-# =========================================================
-# ELEMENTY, KTÓRE NIE SĄ TREŚCIĄ
-# =========================================================
-
-def remove_unwanted_elements(soup):
-
-    selectors = [
-        "script",
-        "style",
-        "svg",
-        "noscript",
-        "iframe",
-        "nav",
-        "header",
-        "footer",
-        "form",
-        ".sidebar",
-        ".widget",
-        ".comments",
-        ".comment",
-        ".related-posts",
-        ".share-buttons",
-        ".cookie",
-        ".cookies"
-    ]
-
-    for selector in selectors:
-
-        for element in soup.select(selector):
-
-            element.decompose()
-
-
-# =========================================================
-# ZNALEZIENIE GŁÓWNEGO KONTENERA
-# =========================================================
-
-def find_main_content(soup):
-
-    selectors = [
-
-        # WordPress
-        ".entry-content",
-        ".post-content",
-        ".page-content",
-        ".article-content",
-        ".single-content",
-
-        # Elementor
-        ".elementor-widget-theme-post-content",
-
-        # Gutenberg
-        ".wp-block-post-content",
-
-        # Ogólne
-        "article",
-        "main"
-    ]
-
-    candidates = []
-
-    for selector in selectors:
-
-        elements = soup.select(
-            selector
+    if not blocks:
+        raise ValueError(
+            "Nie udało się znaleźć głównej treści artykułu."
         )
 
-        for element in elements:
+    output = []
 
-            text = element.get_text(
-                " ",
-                strip=True
-            )
+    stats = {
+        "h1": 0,
+        "h2": 0,
+        "h3": 0,
+        "h4": 0,
+        "paragraphs": 0,
+        "lists": 0,
+        "characters": 0,
+        "cms": cms,
+    }
 
-            if len(text) >= 300:
+    for block in blocks:
 
-                candidates.append(
-                    element
-                )
+        tag = block.name
 
-    if not candidates:
-
-        return None
-
-    # =====================================================
-    # WYBIERAMY NAJWIĘKSZY KONTENER
-    # =====================================================
-
-    return max(
-        candidates,
-        key=lambda element: len(
-            element.get_text(
-                " ",
-                strip=True
-            )
-        )
-    )
-
-
-# =========================================================
-# CZYSZCZENIE TREŚCI
-# =========================================================
-
-def clean_content(container):
-
-    content = BeautifulSoup(
-        str(container),
-        "html.parser"
-    )
-
-    remove_unwanted_elements(
-        content
-    )
-
-    # =====================================================
-    # USUWANIE ELEMENTÓW POMOCNICZYCH
-    # =====================================================
-
-    unwanted_classes = [
-        "share",
-        "social",
-        "related",
-        "author",
-        "comments",
-        "comment",
-        "newsletter",
-        "breadcrumb",
-        "breadcrumbs"
-    ]
-
-    for class_name in unwanted_classes:
-
-        for element in content.select(
-            f".{class_name}"
-        ):
-
-            element.decompose()
-
-    # =====================================================
-    # CZYSZCZENIE TEKSTU
-    # =====================================================
-
-    for element in content.find_all(
-        [
-            "h1",
-            "h2",
-            "h3",
-            "h4",
-            "p",
-            "li"
-        ]
-    ):
-
-        text = element.get_text(
+        text = block.get_text(
             " ",
             strip=True
         )
 
-        text = clean_text(
-            text
-        )
-
         if not text:
-
-            element.decompose()
-
             continue
 
-        # Zachowujemy strukturę HTML:
-        # H1, H2, H3, H4, P, LI
-
-        element.clear()
-
-        element.append(
-            text
-        )
-
-    return content
-
-
-# =========================================================
-# GŁÓWNA FUNKCJA
-# =========================================================
-
-def extract_article_content(url):
-
-    # =====================================================
-    # POBRANIE STRONY
-    # =====================================================
-
-    raw_html = download_page(
-        url
-    )
-
-    # =====================================================
-    # PARSOWANIE ORYGINALNEGO HTML
-    # =====================================================
-
-    soup = BeautifulSoup(
-        raw_html,
-        "html.parser"
-    )
-
-    # =====================================================
-    # NAJPIERW SZUKAMY TREŚCI
-    #
-    # WAŻNE:
-    # nie usuwamy jeszcze header/footer/nav,
-    # ponieważ mogą znajdować się w strukturze
-    # kontenera potrzebnego do znalezienia artykułu.
-    # =====================================================
-
-    main_content = find_main_content(
-        soup
-    )
-
-    if main_content is None:
-
-        raise ValueError(
-            "Nie udało się znaleźć głównej "
-            "treści artykułu."
-        )
-
-    # =====================================================
-    # DOPIERO TERAZ CZYŚCIMY TREŚĆ
-    # =====================================================
-
-    content = clean_content(
-        main_content
-    )
-
-    # =====================================================
-    # TEKST ARTYKUŁU
-    # =====================================================
-
-    clean_article_text = content.get_text(
-        " ",
-        strip=True
-    )
-
-    if len(clean_article_text) < 200:
-
-        raise ValueError(
-            "Znaleziono zbyt mało tekstu "
-            "w głównej treści strony."
-        )
-
-    # =====================================================
-    # STATYSTYKI
-    # =====================================================
-
-    stats = {
-
-        "h1": len(
-            content.find_all("h1")
-        ),
-
-        "h2": len(
-            content.find_all("h2")
-        ),
-
-        "h3": len(
-            content.find_all("h3")
-        ),
-
-        "h4": len(
-            content.find_all("h4")
-        ),
-
-        "paragraphs": len(
-            content.find_all("p")
-        ),
-
-        "lists": len(
-            content.find_all(
-                ["ul", "ol"]
+        # Nagłówki
+        if tag == "h1":
+            output.append(
+                f"<h1>{text}</h1>"
             )
-        ),
+            stats["h1"] += 1
 
-        "characters": len(
-            clean_article_text
+        elif tag == "h2":
+            output.append(
+                f"<h2>{text}</h2>"
+            )
+            stats["h2"] += 1
+
+        elif tag == "h3":
+            output.append(
+                f"<h3>{text}</h3>"
+            )
+            stats["h3"] += 1
+
+        elif tag == "h4":
+            output.append(
+                f"<h4>{text}</h4>"
+            )
+            stats["h4"] += 1
+
+        # Paragrafy
+        elif tag == "p":
+            output.append(
+                f"<p>{text}</p>"
+            )
+            stats["paragraphs"] += 1
+
+        # Listy
+        elif tag == "li":
+            output.append(
+                f"<li>{text}</li>"
+            )
+            stats["lists"] += 1
+
+        # Cytaty
+        elif tag == "blockquote":
+            output.append(
+                f"<blockquote>{text}</blockquote>"
+            )
+
+    article_html = "\n".join(output)
+
+    stats["characters"] = len(
+        " ".join(
+            block.get_text(
+                " ",
+                strip=True
+            )
+            for block in blocks
         )
-    }
-
-    # =====================================================
-    # HTML DO PODGLĄDU
-    # =====================================================
-
-    article_html = str(
-        content
     )
 
     return article_html, stats
