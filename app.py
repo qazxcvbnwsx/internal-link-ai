@@ -3,15 +3,26 @@ import re
 import urllib.request
 import pandas as pd
 import streamlit as st
-import spacy
 from sklearn.feature_extraction.text import TfidfVectorizer
+import nltk
+from nltk.corpus import stopwords
 
-# Ładowanie polskiego modelu językowego
+# Pobieranie polskich stopwords (słów ignorowanych)
 @st.cache_resource
-def load_nlp():
-    return spacy.load("pl_core_news_sm")
+def setup_nltk():
+    nltk.download('stopwords', quiet=True)
+    try:
+        polish_stopwords = set(stopwords.words('polish'))
+    except Exception:
+        # Rezerwowa lista podstawowych polskich słów ignorowanych
+        polish_stopwords = {
+            'oraz', 'jest', 'oraz', 'jako', 'przez', 'tylko', 'może', 'jego', 
+            'być', 'jeśli', 'więc', 'który', 'która', 'które', 'jak', 'tak', 
+            'dla', 'tego', 'brak', 'czy', 'żeby', 'tutaj', 'gdzie'
+        }
+    return polish_stopwords
 
-nlp = load_nlp()
+PL_STOPWORDS = setup_nltk()
 
 st.set_page_config(
     page_title="SEO Tools AI",
@@ -42,16 +53,17 @@ with col1:
     analyze_topic_btn = st.button("📊 Krok 1: Sprawdź tematykę wpisu", type="secondary")
 
 
-def extract_key_topics(text, top_n=5):
-    doc = nlp(text.lower())
-    words = [token.lemma_ for token in doc if token.pos_ in ["NOUN", "ADJ"] and len(token.lemma_) > 3 and not token.is_stop]
+def extract_key_topics(text, top_n=6):
+    # Oczyszczanie tekstu ze znaków specjalnych i cyfr
+    clean_text = re.sub(r'[^\w\s]', '', text.lower())
+    words = [word for word in clean_text.split() if len(word) > 3 and word not in PL_STOPWORDS]
 
     if not words:
         return []
 
-    cleaned_text = " ".join(words)
+    cleaned_string = " ".join(words)
     vectorizer = TfidfVectorizer(max_features=top_n)
-    tfidf_matrix = vectorizer.fit_transform([cleaned_text])
+    vectorizer.fit_transform([cleaned_string])
     feature_names = vectorizer.get_feature_names_out()
 
     return list(feature_names)
@@ -132,15 +144,15 @@ with col2:
                         matched_results = []
 
                         for url in urls:
-                            slug = url.rstrip("/").split("/")[-1].replace("-", " ")
-                            slug_doc = nlp(slug.lower())
-                            slug_lemmas = [t.lemma_ for t in slug_doc]
+                            slug = url.rstrip("/").split("/")[-1].replace("-", " ").lower()
 
                             for topic in st.session_state.topics:
-                                if topic in slug_lemmas or topic in slug:
+                                # Dopasowywanie po rdzeniu słowa kluczowego
+                                topic_stem = topic[:5] if len(topic) > 5 else topic
+                                if topic_stem in slug or topic in slug:
                                     matched_results.append({
                                         "Kategoria / Temat": topic.upper(),
-                                        "Słowo z URL": slug,
+                                        "Fraza z URL": slug,
                                         "Sugerowany URL": url
                                     })
 
@@ -158,6 +170,6 @@ with col2:
                         else:
                             st.info("Nie znaleziono w sitemapie adresów pasujących do tej konkretnej tematyki.")
                     except Exception as e:
-                        st.error(f"Błąd: {e}")
+                        st.error(f"Błąd podczas analizy sitemapy: {e}")
     else:
         st.info("Wklej artykuł po lewej stronie i kliknij 'Sprawdź tematykę wpisu', aby rozpocząć.")
