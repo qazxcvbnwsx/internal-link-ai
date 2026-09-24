@@ -29,12 +29,18 @@ if "article_text_saved" not in st.session_state:
 
 # --- FUNKCJE POMOCNICZE ---
 
-def extract_text_from_url(url):
-    """Pobiera czysty tekst artykułu ze wskazanego adresu URL."""
+def extract_structured_text_from_url(url):
+    """Pobiera treść z URL z zachowaniem nagłówków, list i akapitów (format Markdown)."""
     try:
         downloaded = trafilatura.fetch_url(url)
         if downloaded:
-            text = trafilatura.extract(downloaded)
+            # output_format='markdown' zachowuje nagłówki (#, ##), listy (*, 1.) i akapity
+            text = trafilatura.extract(
+                downloaded, 
+                output_format='markdown',
+                include_formatting=True,
+                include_links=False
+            )
             if text:
                 return text
         return None
@@ -91,7 +97,7 @@ def extract_keywords_with_ai(api_key, article_text):
     client = OpenAI(api_key=api_key)
     
     prompt = f"""
-Przeanalizuj poniższy tekst artykułu SEO.
+Przeanalizuj poniższy tekst artykułu SEO (tekst zawiera strukturę nagłówków i akapitów w Markdown).
 Twoim zadaniem jest wskazanie 5-10 najważniejszych fraz/słów kluczowych występujących w tekście, które stanowią idealne anchory pod linkowanie wewnętrzne.
 
 ZWRÓĆ WYNIK W FORMACIE TABELI Z KOLUMNAMI ROZDZIELONYMI ŚREDNIKIEM (;):
@@ -103,7 +109,7 @@ Zasady:
 3. Nie pisz żadnego wstępu ani podsumowania - tylko linie tabeli.
 
 TEKST ARTYKUŁU:
-{article_text[:4000]}
+{article_text[:5000]}
 """
 
     response = client.chat.completions.create(
@@ -196,7 +202,7 @@ if st.session_state.current_tool == "home":
         st.markdown("""
         <div style="border:1px solid #e6e6e6; border-radius:10px; padding:20px; text-align:center; box-shadow: 2px 2px 8px rgba(0,0,0,0.05);">
             <h3>🔗 Linkowanie Wewnętrzne AI</h3>
-            <p>Dwuetapowa analiza tekstu i automatyczne dopasowywanie adresów URL z sitemapy.</p>
+            <p>Dwuetapowa analiza tekstu ze strukturą nagłówków i dopasowywanie adresów URL z sitemapy.</p>
         </div>
         """, unsafe_allow_html=True)
         st.write("")
@@ -239,20 +245,28 @@ elif st.session_state.current_tool == "linker":
         current_text = ""
 
         if input_type == "Wklej tekst ręcznie":
-            current_text = st.text_area("Wklej tutaj tekst artykułu:", height=250, placeholder="Wpisz lub wklej artykuł...")
+            current_text = st.text_area("Wklej tutaj tekst artykułu (może zawierać nagłówki i listy):", height=250, placeholder="Wpisz lub wklej treść...")
+            if current_text:
+                st.write("**Podgląd wprowadzonej treści:**")
+                with st.container(height=400):  # Okno o stałej wysokości ok. 50 linijek ze scrollem
+                    st.markdown(current_text)
         else:
             article_url = st.text_input("Adres URL wpisu:", placeholder="https://twojadomena.pl/moj-artykul")
             if article_url:
-                with st.spinner("Pobieranie treści ze strony..."):
-                    fetched_text = extract_text_from_url(article_url)
+                with st.spinner("Pobieranie i formatowanie treści ze strony..."):
+                    fetched_text = extract_structured_text_from_url(article_url)
                     if fetched_text:
                         current_text = fetched_text
-                        st.success(f"Pobrano tekst ({len(current_text)} znaków).")
-                        with st.expander("Zobacz pobrany tekst"):
-                            st.write(current_text)
+                        st.success(f"Pomyślnie pobrano i sformatowano treść ({len(current_text)} znaków).")
+                        st.write("**Podgląd pobranej treści (ze strukturą nagłówków i list):**")
+                        
+                        # Okno o stałej wysokości z automatycznym suwakiem (scroll)
+                        with st.container(height=400):
+                            st.markdown(current_text)
                     else:
                         st.error("Nie udało się pobrać treści z URL.")
 
+        st.write("")
         analyze_step1_btn = st.button("🔍 Krok 1: Analizuj tekst i znajdź frazy do linkowania", type="primary", use_container_width=True)
 
         if analyze_step1_btn:
@@ -261,7 +275,7 @@ elif st.session_state.current_tool == "linker":
             elif not current_text.strip():
                 st.error("Podaj treść artykułu lub poprawny link!")
             else:
-                with st.spinner("AI analizuje tekst pod kątem fraz kluczowych..."):
+                with st.spinner("AI analizuje sformatowaną treść pod kątem fraz kluczowych..."):
                     try:
                         st.session_state.article_text_saved = current_text
                         df_keywords = extract_keywords_with_ai(api_key_input, current_text)
@@ -316,4 +330,3 @@ elif st.session_state.current_tool == "linker":
                             st.error(f"Błąd podczas dopasowywania sitemapy: {e}")
         else:
             st.info("👈 Najpierw wklej artykuł i kliknij 'Krok 1: Analizuj tekst', aby wygenerować propozycje fraz.")
-            
