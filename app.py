@@ -130,25 +130,26 @@ def extract_keywords_with_ai(api_key, article_text):
     client = OpenAI(api_key=api_key)
     
     prompt = f"""
-Przeanalizuj poniższy tekst artykułu SEO (tekst zawiera strukturę nagłówków i akapitów w Markdown).
-Twoim zadaniem jest wskazanie 5-10 najważniejszych fraz/słów kluczowych występujących w tekście, które stanowią idealne anchory pod linkowanie wewnętrzne.
+Przeanalizuj poniższy tekst artykułu SEO.
+Twoim zadaniem jest znalezienie 6-12 najważniejszych fraz/słów kluczowych (np. nazwy produktów, kategorii, materiałów, stylów), które FAKTYCZNIE występują w tym tekście i stanowią idealne anchory pod linkowanie wewnętrzne.
 
 ZWRÓĆ WYNIK W FORMACIE TABELI Z KOLUMNAMI ROZDZIELONYMI ŚREDNIKIEM (;):
-Fraza z tekstu;Proponowana tematyka linku;Dlaczego warto podlinkować
+Fraza z tekstu;Proponowana tematyka linku;Uzasadnienie
 
 Zasady:
-1. Wybieraj frazy, które FAKTYCZNIE znajdują się w tekście.
-2. Zwróć maksymalnie 8 najlepszych propozycji.
-3. Nie pisz żadnego wstępu ani podsumowania - tylko linie tabeli.
+1. Szukaj fraz takich jak np. nazwy mebli, materiałów, kategorii sklepowych (np. "meble z litego drewna", "komody bukowe", "witryny", "zestaw mebli").
+2. Fraza MUSI znajdować się dokładnie lub w zbliżonej formie w poniższym tekście.
+3. Zwróć od 6 do 12 najlepszych propozycji.
+4. NIE PISZ żadnego wstępu ani opisu - zwróć wyłącznie linie tabeli rozdzielone średnikami!
 
 TEKST ARTYKUŁU:
-{article_text[:5000]}
+{article_text[:12000]}
 """
 
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
-            {"role": "system", "content": "Jesteś ekspertem SEO ds. analizy semantycznej tekstu."},
+            {"role": "system", "content": "Jesteś ekspertem SEO ds. analizy semantycznej tekstu i architektury informacji."},
             {"role": "user", "content": prompt}
         ],
         temperature=0.2
@@ -158,11 +159,12 @@ TEKST ARTYKUŁU:
     
     rows = []
     for line in result_text.split("\n"):
-        if ";" in line and not line.startswith("Fraza z tekstu"):
-            parts = line.split(";")
+        line_clean = line.strip()
+        if ";" in line_clean and not line_clean.lower().startswith("fraza"):
+            parts = line_clean.split(";")
             if len(parts) >= 3:
                 rows.append({
-                    "Fraza w tekście (Anchor)": parts[0].strip(),
+                    "Fraza w tekście (Anchor)": parts[0].replace("`", "").strip(),
                     "Tematyka docelowa": parts[1].strip(),
                     "Uzasadnienie": parts[2].strip()
                 })
@@ -173,11 +175,11 @@ TEKST ARTYKUŁU:
 def match_keywords_to_sitemap(api_key, keywords_list, urls):
     client = OpenAI(api_key=api_key)
     
-    urls_formatted = "\n".join(urls[:150])
+    urls_formatted = "\n".join(urls[:300])
     keywords_formatted = ", ".join(keywords_list)
     
     prompt = f"""
-Twoim zadaniem jest dopasowanie wykrytych fraz kluczowych do najbardziej pasujących adresów URL z sitemapy pod kątem linkowania wewnętrznego.
+Twoim zadaniem jest dopasowanie poniższych fraz kluczowych do najbardziej pasujących adresów URL z sitemapy sklepu/strony.
 
 LISTA WYKRYTYCH FRAZ Z TEKSTU:
 {keywords_formatted}
@@ -189,15 +191,15 @@ ZWRÓĆ WYNIK W FORMACIE TABELI Z KOLUMNAMI ROZDZIELONYMI ŚREDNIKIEM (;):
 Fraza / Anchor;Rekomendowany URL;Uzasadnienie dopasowania
 
 Zasady:
-1. Dopasuj tylko te adresy URL, które ściśle pasują do frazy.
-2. Jeśli dla danej frazy nie ma pasującego adresu w sitemapie, pomiń ją.
-3. Nie pisz żadnego wstępu ani podsumowania - tylko linie tabeli.
+1. Dopasuj tylko te adresy URL, które tematycznie odpowiadają frazie (np. frazę 'komody bukowe' dopasuj do URL zawierającego 'komody' lub 'komody-bukowe').
+2. Jeśli dla danej frazy brak pasującego URL w sitemapie, po prostu ją pomiń.
+3. NIE PISZ żadnego wstępu ani podsumowania - zwróć tylko linie danych rozdzielone średnikiem.
 """
 
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
-            {"role": "system", "content": "Jesteś ekspertem SEO od architektury informacji i linkowania."},
+            {"role": "system", "content": "Jesteś ekspertem SEO od architektury linkowania wewnętrznego w e-commerce."},
             {"role": "user", "content": prompt}
         ],
         temperature=0.2
@@ -207,11 +209,12 @@ Zasady:
     
     rows = []
     for line in result_text.split("\n"):
-        if ";" in line and not line.startswith("Fraza / Anchor"):
-            parts = line.split(";")
+        line_clean = line.strip()
+        if ";" in line_clean and not line_clean.lower().startswith("fraza"):
+            parts = line_clean.split(";")
             if len(parts) >= 3:
                 rows.append({
-                    "Sugerowany Anchor Text": parts[0].strip(),
+                    "Sugerowany Anchor Text": parts[0].replace("`", "").strip(),
                     "Rekomendowany URL": parts[1].strip(),
                     "Uzasadnienie AI": parts[2].strip()
                 })
