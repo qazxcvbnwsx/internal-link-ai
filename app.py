@@ -4,6 +4,7 @@ import urllib.request
 import pandas as pd
 import streamlit as st
 import trafilatura
+from urllib.parse import urlparse
 
 try:
     from openai import OpenAI
@@ -25,16 +26,48 @@ if "detected_keywords" not in st.session_state:
     st.session_state.detected_keywords = None
 if "article_text_saved" not in st.session_state:
     st.session_state.article_text_saved = ""
+if "sitemap_url_val" not in st.session_state:
+    st.session_state.sitemap_url_val = ""
+if "article_url_val" not in st.session_state:
+    st.session_state.article_url_val = ""
 
 
 # --- FUNKCJE POMOCNICZE ---
+
+def get_sitemap_from_robots(url_or_domain):
+    """Szuka wpisu 'Sitemap:' w pliku robots.txt domeny."""
+    try:
+        parsed = urlparse(url_or_domain)
+        scheme = parsed.scheme if parsed.scheme else "https"
+        netloc = parsed.netloc if parsed.netloc else parsed.path.split('/')[0]
+        
+        if not netloc:
+            return None
+
+        robots_url = f"{scheme}://{netloc}/robots.txt"
+        
+        req = urllib.request.Request(
+            robots_url, 
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        )
+        
+        with urllib.request.urlopen(req, timeout=5) as response:
+            content = response.read().decode('utf-8', errors='ignore')
+            
+        for line in content.splitlines():
+            if line.strip().lower().startswith("sitemap:"):
+                sitemap_found = line.split(":", 1)[1].strip()
+                return sitemap_found
+        return None
+    except Exception:
+        return None
+
 
 def extract_structured_text_from_url(url):
     """Pobiera treść z URL z zachowaniem nagłówków, list i akapitów (format Markdown)."""
     try:
         downloaded = trafilatura.fetch_url(url)
         if downloaded:
-            # output_format='markdown' zachowuje nagłówki (#, ##), listy (*, 1.) i akapity
             text = trafilatura.extract(
                 downloaded, 
                 output_format='markdown',
@@ -248,11 +281,12 @@ elif st.session_state.current_tool == "linker":
             current_text = st.text_area("Wklej tutaj tekst artykułu (może zawierać nagłówki i listy):", height=250, placeholder="Wpisz lub wklej treść...")
             if current_text:
                 st.write("**Podgląd wprowadzonej treści:**")
-                with st.container(height=400):  # Okno o stałej wysokości ok. 50 linijek ze scrollem
+                with st.container(height=400):
                     st.markdown(current_text)
         else:
-            article_url = st.text_input("Adres URL wpisu:", placeholder="https://twojadomena.pl/moj-artykul")
+            article_url = st.text_input("Adres URL wpisu:", placeholder="https://twojadomena.pl/moj-artykul", key="input_art_url")
             if article_url:
+                st.session_state.article_url_val = article_url
                 with st.spinner("Pobieranie i formatowanie treści ze strony..."):
                     fetched_text = extract_structured_text_from_url(article_url)
                     if fetched_text:
@@ -260,7 +294,6 @@ elif st.session_state.current_tool == "linker":
                         st.success(f"Pomyślnie pobrano i sformatowano treść ({len(current_text)} znaków).")
                         st.write("**Podgląd pobranej treści (ze strukturą nagłówków i list):**")
                         
-                        # Okno o stałej wysokości z automatycznym suwakiem (scroll)
                         with st.container(height=400):
                             st.markdown(current_text)
                     else:
@@ -284,9 +317,9 @@ elif st.session_state.current_tool == "linker":
                     except Exception as e:
                         st.error(f"Błąd analizy tekstu: {e}")
 
-    # --- PRAWA KOLUMNA: KROK 2 ---
+    # --- PRAWA KOLUMNA: KROK 2 I 3 ---
     with col2:
-        st.subheader("2. Wykryte frazy & Przeszukiwanie sitemapy")
+        st.subheader("2. Wykryte frazy przez AI")
 
         if st.session_state.detected_keywords is not None:
             st.success("✅ AI wytypowało frazy z tekstu, które nadają się do podlinkowania:")
@@ -294,9 +327,35 @@ elif st.session_state.current_tool == "linker":
 
             st.write("---")
             st.subheader("3. Dopasuj linki z Sitemapy")
-            sitemap_input = st.text_input("Wklej adres Sitemapy XML:", placeholder="https://twojadomena.pl/sitemap.xml")
+            
+            # Przycisk do automatycznego pobierania sitemapy z robots.txt
+            col_btn, col_info = st.columns([1, 1])
+            with col_btn:
+                fetch_robots_btn = st.button("🤖 Pobierz automatycznie z robots.txt")
+            
+            if fetch_robots_btn:
+                target_domain = st.session_state.article_url_val
+                if not target_domain:
+                    st.warning("Najpierw podaj URL artykułu w Kroku 1 lub wklej bezpośredni adres domeny.")
+                else:
+                    with st.spinner("Sprawdzanie pliku robots.txt..."):
+                        found_sitemap = get_sitemap_from_robots(target_domain)
+                        if found_sitemap:
+                            st.session_state.sitemap_url_val = found_sitemap
+                            st.success("Znaleziono sitemapę w robots.txt!")
+                        else:
+                            st.error("Nie znaleziono ścieżki do sitemapy w pliku robots.txt.")
 
-            match_step2_btn = st.button("🚀 Zatwierdzam – szukaj dopasowań w sitemapie", type="primary", use_container_width=True)
+            # Pole do wklejenia lub wygenerowania adresu sitemapy
+            sitemap_input = st.text_input(
+                "Adres Sitemapy XML:", 
+                value=st.session_state.sitemap_url_val,
+                placeholder="https://twojadomena.pl/sitemap.xml",
+                help="Możesz wkleić adres sitemapy ręcznie lub pobrać go automatycznie przyciskiem powyżej."
+            )
+
+            st.write("")
+            match_step2_btn = st.button("🚀 Sprawdź i dopasuj linki z sitemapy", type="primary", use_container_width=True)
 
             if match_step2_btn:
                 if not sitemap_input:
@@ -307,7 +366,6 @@ elif st.session_state.current_tool == "linker":
                             urls = get_urls_from_sitemap(sitemap_input)
                             st.info(f"Pobrano {len(urls)} adresów URL z sitemapy.")
 
-                            # Pobieramy listę słów z tabeli
                             kw_list = st.session_state.detected_keywords["Fraza w tekście (Anchor)"].tolist()
 
                             df_final = match_keywords_to_sitemap(api_key_input, kw_list, urls)
