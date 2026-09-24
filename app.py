@@ -6,6 +6,7 @@ import streamlit as st
 from sklearn.feature_extraction.text import TfidfVectorizer
 import nltk
 from nltk.corpus import stopwords
+import trafilatura
 
 # Konfiguracja strony
 st.set_page_config(
@@ -30,14 +31,25 @@ def setup_nltk():
 
 PL_STOPWORDS = setup_nltk()
 
-# Zarządzanie stanem nawigacji (Narzędzie vs Strona Główna)
+# Stan nawigacji
 if "current_tool" not in st.session_state:
     st.session_state.current_tool = "home"
 
-if "topics" not in st.session_state:
-    st.session_state.topics = None
-
 # --- FUNKCJE POMOCNICZE ---
+
+def extract_text_from_url(url):
+    """Pobiera czysty tekst artykułu ze wskazanego adresu URL."""
+    try:
+        downloaded = trafilatura.fetch_url(url)
+        if downloaded:
+            text = trafilatura.extract(downloaded)
+            if text:
+                return text
+        return None
+    except Exception as e:
+        st.error(f"Błąd podczas pobierania treści z URL: {e}")
+        return None
+
 def extract_key_topics(text, top_n=6):
     clean_text = re.sub(r'[^\w\s]', '', text.lower())
     words = [word for word in clean_text.split() if len(word) > 3 and word not in PL_STOPWORDS]
@@ -134,7 +146,7 @@ if st.session_state.current_tool == "home":
         st.markdown("""
         <div style="border:1px solid #e6e6e6; border-radius:10px; padding:20px; text-align:center; box-shadow: 2px 2px 8px rgba(0,0,0,0.05);">
             <h3>🔗 Linkowanie Wewnętrzne</h3>
-            <p>Automatycznie dopasowuj adresy URL z sitemapy XML do fraz w Twoim artykule oraz sprawdzaj tematykę wpisu.</p>
+            <p>Automatycznie dopasowuj adresy URL z sitemapy XML na podstawie artykułu (z tekstu lub podanego linku).</p>
         </div>
         """, unsafe_allow_html=True)
         st.write("")
@@ -172,36 +184,54 @@ elif st.session_state.current_tool == "linker":
         st.rerun()
 
     st.markdown("<h1>🔗 Generator Linkowania Wewnętrznego</h1>", unsafe_allow_html=True)
-    st.caption("Dopasowuj linki bezpośrednio do słów kluczowych lub sprawdzaj główną tematykę wpisu.")
+    st.caption("Dopasowuj linki z sitemapy na podstawie artykułu wklejonego ręcznie lub pobranego bezpośrednio z linku.")
 
     col1, col2 = st.columns([1, 2])
 
     with col1:
         st.subheader("1. Wprowadź dane")
         sitemap_input = st.text_input("Adres Sitemapy XML:", placeholder="https://twojadomena.pl/sitemap.xml")
-        text_input = st.text_area("Tekst do analizy:", height=300, placeholder="Wklej tutaj treść artykułu...")
+        
+        # Wybór źródła artykułu: Wklejenie vs Pobranie z URL
+        input_type = st.radio("Źródło treści artykułu:", ["Wklej tekst ręcznie", "Pobierz treść z adresu URL"], horizontal=True)
+
+        article_text = ""
+
+        if input_type == "Wklej tekst ręcznie":
+            article_text = st.text_area("Tekst do analizy:", height=250, placeholder="Wklej tutaj treść artykułu...")
+        else:
+            article_url = st.text_input("Adres URL artykułu:", placeholder="https://twojadomena.pl/moj-artykul")
+            if article_url:
+                with st.spinner("Pobieranie treści ze strony..."):
+                    fetched_text = extract_text_from_url(article_url)
+                    if fetched_text:
+                        article_text = fetched_text
+                        st.success(f"Pomyślnie pobrano treść ({len(article_text)} znaków).")
+                        with st.expander("Podgląd pobranej treści"):
+                            st.write(article_text[:500] + "...")
+                    else:
+                        st.error("Nie udało się pobrać treści z podanego adresu URL.")
 
         st.write("---")
         
-        # Przycisk podstawowy (jak w oryginalnej wersji)
         analyze_links_btn = st.button("🚀 Dopasuj linki z sitemapy", type="primary", use_container_width=True)
-        
-        # Nowy przycisk do sprawdzania tematyki
         analyze_topic_btn = st.button("📊 Analizuj tematykę wpisu", type="secondary", use_container_width=True)
 
 
     with col2:
         st.subheader("2. Wyniki analizy")
 
-        # LOGIKA 1: Standardowe dopasowywanie linków (poprzednia funkcjonalność)
+        # AKCJA 1: Wykrywanie dokładnych dopasowań
         if analyze_links_btn:
-            if not sitemap_input or not text_input:
-                st.error("⚠️ Proszę podać adres sitemapy oraz wkleić tekst.")
+            if not sitemap_input:
+                st.error("⚠️ Podaj adres sitemapy XML.")
+            elif not article_text.strip():
+                st.error("⚠️ Wprowadź tekst lub podaj poprawny URL artykułu do pobrania.")
             else:
                 with st.spinner("Skanowanie sitemapy i szukanie powiązań w tekście..."):
                     try:
                         urls = get_urls_from_sitemap(sitemap_input)
-                        results = suggest_internal_links(text_input, urls)
+                        results = suggest_internal_links(article_text, urls)
 
                         st.success(f"Pobrano {len(urls)} adresów URL z sitemapy.")
                         
@@ -219,27 +249,23 @@ elif st.session_state.current_tool == "linker":
                         else:
                             st.info("Nie znaleziono w tekście dokładnych dopasowań słów kluczowych ze slugów sitemapy.")
                     except Exception as e:
-                        st.error(f"❌ Błąd podczas pobierania sitemapy: {e}")
+                        st.error(f"❌ Błąd podczas analizy sitemapy: {e}")
 
-        # LOGIKA 2: Nowa opcja - Sprawdzanie tematyki wpisu
+        # AKCJA 2: Sprawdzanie tematyki
         elif analyze_topic_btn:
-            if not text_input.strip():
-                st.error("⚠️ Wklej tekst artykułu po lewej stronie.")
+            if not article_text.strip():
+                st.error("⚠️ Wprowadź tekst lub podaj poprawny URL artykułu.")
             else:
                 with st.spinner("Analizowanie tematyki artykułu..."):
-                    topics = extract_key_topics(text_input)
-                    st.session_state.topics = topics
+                    topics = extract_key_topics(article_text)
                     
                     if topics:
                         st.success("✅ Wykryto główne tematy artykułu!")
                         st.write("**Główne słowa kluczowe i tematyka:**")
-                        
-                        # Wyświetlanie znalezionych tematów w ładnych boksach
                         st.write(" ".join([f"`{topic.upper()}`" for topic in topics]))
                         
                         st.divider()
 
-                        # Jeśli podano sitemapę, od razu proponuje adresy pasujące tematycznie
                         if sitemap_input:
                             st.write("**Sugerowane podstrony z sitemapy dopasowane do tematyki:**")
                             urls = get_urls_from_sitemap(sitemap_input)
@@ -263,4 +289,4 @@ elif st.session_state.current_tool == "linker":
                     else:
                         st.warning("Nie udało się wyodrębnić jednoznacznych słów kluczowych.")
         else:
-            st.info("Podaj adres sitemapy, wklej artykuł po lewej stronie i wybierz odpowiednią akcję.")
+            st.info("Wybierz źródło artykułu po lewej stronie i uruchom analizę.")
