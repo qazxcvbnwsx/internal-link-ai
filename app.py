@@ -14,12 +14,19 @@ def load_nlp():
 nlp = load_nlp()
 
 st.set_page_config(
-    page_title="SEO Smart Link Finder",
-    page_icon="🚜",
+    page_title="SEO Tools AI",
+    page_icon="🤖",
     layout="wide"
 )
 
-st.title("🚜 Inteligenty Generator Linkowania Wewnętrznego")
+# Nagłówek aplikacji
+st.markdown("""
+    <h1>SEO Tools AI</h1>
+    <p>Proste narzędzia SEO wykorzystujące AI do codziennej pracy.</p>
+    <hr style="margin-bottom: 2em;">
+""", unsafe_allow_html=True)
+
+st.subheader("🔗 Generator Linkowania Wewnętrznego")
 st.caption("Analizuje tematykę wpisu i automatycznie dobiera najbardziej pasujące adresy z sitemapy.")
 
 if "topics" not in st.session_state:
