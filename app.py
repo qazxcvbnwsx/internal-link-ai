@@ -18,8 +18,14 @@ st.set_page_config(
     layout="wide"
 )
 
+# Zmienne stanu sesji (Session State)
 if "current_tool" not in st.session_state:
     st.session_state.current_tool = "home"
+if "detected_keywords" not in st.session_state:
+    st.session_state.detected_keywords = None
+if "article_text_saved" not in st.session_state:
+    st.session_state.article_text_saved = ""
+
 
 # --- FUNKCJE POMOCNICZE ---
 
@@ -79,28 +85,22 @@ def get_urls_from_sitemap(url, visited=None):
 
     return list(dict.fromkeys(urls))
 
-def analyze_with_ai(api_key, article_text, urls):
-    """Analizuje treść i sitemapę za pomocą OpenAI GPT-4o-mini."""
-    client = OpenAI(api_key=api_key)
 
-    # Przekazujemy maksymalnie 150 adresów URL z sitemapy
-    urls_formatted = "\n".join(urls[:150])
+# --- ANALIZA KROK 1: Wykrywanie słów kluczowych przez AI ---
+def extract_keywords_with_ai(api_key, article_text):
+    client = OpenAI(api_key=api_key)
     
     prompt = f"""
-Przeanalizuj poniższy tekst artykułu oraz listę adresów URL z sitemapy.
-Twoim zadaniem jest znalezienie najlepszych powiązań tematycznych pod kątem LINKOWANIA WEWNĘTRZNEGO SEO.
+Przeanalizuj poniższy tekst artykułu SEO.
+Twoim zadaniem jest wskazanie 5-10 najważniejszych fraz/słów kluczowych występujących w tekście, które stanowią idealne anchory pod linkowanie wewnętrzne.
 
 ZWRÓĆ WYNIK W FORMACIE TABELI Z KOLUMNAMI ROZDZIELONYMI ŚREDNIKIEM (;):
-Sugerowany Anchor Text;Rekomendowany URL;Uzasadnienie AI
+Fraza z tekstu;Proponowana tematyka linku;Dlaczego warto podlinkować
 
 Zasady:
-1. Zaproponuj tylko te linki, które idealnie pasują tematycznie do treści artykułu.
-2. Zaproponuj konkretny frazowy anchor text (po polsku), który warto podlinkować w tekście.
-3. Wyjaśnij krótko w uzasadnieniu, dlaczego ten link pasuje.
-4. Zwróć maksymalnie 5-8 najlepszych dopasowań. Nie pisz żadnego wstępu ani podsumowania - tylko linie tabeli.
-
-LISTA URL Z SITEMAPY:
-{urls_formatted}
+1. Wybieraj frazy, które FAKTYCZNIE znajdują się w tekście.
+2. Zwróć maksymalnie 8 najlepszych propozycji.
+3. Nie pisz żadnego wstępu ani podsumowania - tylko linie tabeli.
 
 TEKST ARTYKUŁU:
 {article_text[:4000]}
@@ -109,7 +109,7 @@ TEKST ARTYKUŁU:
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
-            {"role": "system", "content": "Jesteś doświadczonym ekspertem SEO specjalizującym się w linkowaniu wewnętrznym."},
+            {"role": "system", "content": "Jesteś ekspertem SEO ds. analizy semantycznej tekstu."},
             {"role": "user", "content": prompt}
         ],
         temperature=0.2
@@ -119,7 +119,56 @@ TEKST ARTYKUŁU:
     
     rows = []
     for line in result_text.split("\n"):
-        if ";" in line and not line.startswith("Sugerowany Anchor"):
+        if ";" in line and not line.startswith("Fraza z tekstu"):
+            parts = line.split(";")
+            if len(parts) >= 3:
+                rows.append({
+                    "Fraza w tekście (Anchor)": parts[0].strip(),
+                    "Tematyka docelowa": parts[1].strip(),
+                    "Uzasadnienie": parts[2].strip()
+                })
+    return pd.DataFrame(rows)
+
+
+# --- ANALIZA KROK 2: Dopasowywanie fraz do sitemapy przez AI ---
+def match_keywords_to_sitemap(api_key, keywords_list, urls):
+    client = OpenAI(api_key=api_key)
+    
+    urls_formatted = "\n".join(urls[:150])
+    keywords_formatted = ", ".join(keywords_list)
+    
+    prompt = f"""
+Twoim zadaniem jest dopasowanie wykrytych fraz kluczowych do najbardziej pasujących adresów URL z sitemapy pod kątem linkowania wewnętrznego.
+
+LISTA WYKRYTYCH FRAZ Z TEKSTU:
+{keywords_formatted}
+
+LISTA ADRESÓW URL Z SITEMAPY:
+{urls_formatted}
+
+ZWRÓĆ WYNIK W FORMACIE TABELI Z KOLUMNAMI ROZDZIELONYMI ŚREDNIKIEM (;):
+Fraza / Anchor;Rekomendowany URL;Uzasadnienie dopasowania
+
+Zasady:
+1. Dopasuj tylko te adresy URL, które ściśle pasują do frazy.
+2. Jeśli dla danej frazy nie ma pasującego adresu w sitemapie, pomiń ją.
+3. Nie pisz żadnego wstępu ani podsumowania - tylko linie tabeli.
+"""
+
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "Jesteś ekspertem SEO od architektury informacji i linkowania."},
+            {"role": "user", "content": prompt}
+        ],
+        temperature=0.2
+    )
+
+    result_text = response.choices[0].message.content.strip()
+    
+    rows = []
+    for line in result_text.split("\n"):
+        if ";" in line and not line.startswith("Fraza / Anchor"):
             parts = line.split(";")
             if len(parts) >= 3:
                 rows.append({
@@ -147,7 +196,7 @@ if st.session_state.current_tool == "home":
         st.markdown("""
         <div style="border:1px solid #e6e6e6; border-radius:10px; padding:20px; text-align:center; box-shadow: 2px 2px 8px rgba(0,0,0,0.05);">
             <h3>🔗 Linkowanie Wewnętrzne AI</h3>
-            <p>Automatyczna analiza kontekstowa tekstu i dopasowywanie adresów z sitemapy przy użyciu sztucznej inteligencji.</p>
+            <p>Dwuetapowa analiza tekstu i automatyczne dopasowywanie adresów URL z sitemapy.</p>
         </div>
         """, unsafe_allow_html=True)
         st.write("")
@@ -168,80 +217,103 @@ if st.session_state.current_tool == "home":
 elif st.session_state.current_tool == "linker":
     if st.button("← Powrót do menu narzędzi"):
         st.session_state.current_tool = "home"
+        st.session_state.detected_keywords = None
         st.rerun()
 
     st.markdown("<h1>🔗 Linkowanie Wewnętrzne wspierane przez AI</h1>", unsafe_allow_html=True)
 
-    col1, col2 = st.columns([1, 2])
+    # Sprawdzamy klucz API
+    secret_key = st.secrets.get("OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    if secret_key:
+        api_key_input = secret_key
+    else:
+        api_key_input = st.sidebar.text_input("Klucz OpenAI API Key:", type="password")
 
+    col1, col2 = st.columns([1, 1], gap="large")
+
+    # --- LEWA KOLUMNA: KROK 1 ---
     with col1:
-        st.subheader("1. Ustawienia i Dane")
-        
-        # Sposób pobierania klucza API z Secrets
-        secret_key = st.secrets.get("OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY")
-        
-        if secret_key:
-            st.success("🔒 Klucz OpenAI API został pobrany bezpiecznie z ustawień aplikacji.")
-            api_key_input = secret_key
-        else:
-            api_key_input = st.text_input("Klucz OpenAI API Key:", type="password", help="Wklej klucz lub dodaj go do Secrets w panelu Streamlit Cloud.")
+        st.subheader("1. Treść wpisu")
+        input_type = st.radio("Sposób wprowadzania artykułu:", ["Wklej tekst ręcznie", "Pobierz z adresu URL"], horizontal=True)
 
-        sitemap_input = st.text_input("Adres Sitemapy XML:", placeholder="https://twojadomena.pl/sitemap.xml")
-        input_type = st.radio("Źródło treści artykułu:", ["Wklej tekst ręcznie", "Pobierz treść z adresu URL"], horizontal=True)
-
-        article_text = ""
+        current_text = ""
 
         if input_type == "Wklej tekst ręcznie":
-            article_text = st.text_area("Tekst do analizy:", height=200, placeholder="Wklej tutaj treść artykułu...")
+            current_text = st.text_area("Wklej tutaj tekst artykułu:", height=250, placeholder="Wpisz lub wklej artykuł...")
         else:
-            article_url = st.text_input("Adres URL artykułu:", placeholder="https://twojadomena.pl/moj-artykul")
+            article_url = st.text_input("Adres URL wpisu:", placeholder="https://twojadomena.pl/moj-artykul")
             if article_url:
                 with st.spinner("Pobieranie treści ze strony..."):
                     fetched_text = extract_text_from_url(article_url)
                     if fetched_text:
-                        article_text = fetched_text
-                        st.success(f"Pomyślnie pobrano treść ({len(article_text)} znaków).")
-                        st.write("**Pobrany tekst:**")
-                        with st.container(height=200):
-                            st.write(article_text)
+                        current_text = fetched_text
+                        st.success(f"Pobrano tekst ({len(current_text)} znaków).")
+                        with st.expander("Zobacz pobrany tekst"):
+                            st.write(current_text)
                     else:
-                        st.error("Nie udało się pobrać treści z podanego URL.")
+                        st.error("Nie udało się pobrać treści z URL.")
 
-        st.write("---")
-        analyze_ai_btn = st.button("🤖 Analizuj i dopasuj linki z AI", type="primary", use_container_width=True)
+        analyze_step1_btn = st.button("🔍 Krok 1: Analizuj tekst i znajdź frazy do linkowania", type="primary", use_container_width=True)
 
-    with col2:
-        st.subheader("2. Propozycje AI")
-
-        if analyze_ai_btn:
+        if analyze_step1_btn:
             if not api_key_input:
-                st.error("⚠️ Wprowadź Swój Klucz OpenAI API Key lub ustaw go w Secrets.")
-            elif not sitemap_input:
-                st.error("⚠️ Podaj adres sitemapy XML.")
-            elif not article_text.strip():
-                st.error("⚠️ Wprowadź tekst lub podaj poprawny URL artykułu.")
+                st.error("Wprowadź Klucz OpenAI API!")
+            elif not current_text.strip():
+                st.error("Podaj treść artykułu lub poprawny link!")
             else:
-                with st.spinner("AI czyta artykuł, analizuje sitemapę i dobiera linki..."):
+                with st.spinner("AI analizuje tekst pod kątem fraz kluczowych..."):
                     try:
-                        urls = get_urls_from_sitemap(sitemap_input)
-                        st.info(f"Pobrano {len(urls)} adresów z sitemapy. Przekazywanie danych do AI...")
-                        
-                        df_results = analyze_with_ai(api_key_input, article_text, urls)
-                        
-                        if not df_results.empty:
-                            st.success("✅ AI zakończyło analizę!")
-                            st.dataframe(df_results, use_container_width=True)
-                            
-                            csv_data = df_results.to_csv(index=False).encode('utf-8')
-                            st.download_button(
-                                label="📥 Pobierz raport CSV",
-                                data=csv_data,
-                                file_name="linkowanie_ai.csv",
-                                mime="text/csv"
-                            )
-                        else:
-                            st.warning("AI nie znalazło jednoznacznych powiązań tematycznych.")
+                        st.session_state.article_text_saved = current_text
+                        df_keywords = extract_keywords_with_ai(api_key_input, current_text)
+                        st.session_state.detected_keywords = df_keywords
+                        st.rerun()
                     except Exception as e:
-                        st.error(f"❌ Błąd podczas analizy AI: {e}")
+                        st.error(f"Błąd analizy tekstu: {e}")
+
+    # --- PRAWA KOLUMNA: KROK 2 ---
+    with col2:
+        st.subheader("2. Wykryte frazy & Przeszukiwanie sitemapy")
+
+        if st.session_state.detected_keywords is not None:
+            st.success("✅ AI wytypowało frazy z tekstu, które nadają się do podlinkowania:")
+            st.dataframe(st.session_state.detected_keywords, use_container_width=True)
+
+            st.write("---")
+            st.subheader("3. Dopasuj linki z Sitemapy")
+            sitemap_input = st.text_input("Wklej adres Sitemapy XML:", placeholder="https://twojadomena.pl/sitemap.xml")
+
+            match_step2_btn = st.button("🚀 Zatwierdzam – szukaj dopasowań w sitemapie", type="primary", use_container_width=True)
+
+            if match_step2_btn:
+                if not sitemap_input:
+                    st.error("Wprowadź adres sitemapy XML!")
+                else:
+                    with st.spinner("Pobieranie sitemapy i dopasowywanie URL-i do fraz..."):
+                        try:
+                            urls = get_urls_from_sitemap(sitemap_input)
+                            st.info(f"Pobrano {len(urls)} adresów URL z sitemapy.")
+
+                            # Pobieramy listę słów z tabeli
+                            kw_list = st.session_state.detected_keywords["Fraza w tekście (Anchor)"].tolist()
+
+                            df_final = match_keywords_to_sitemap(api_key_input, kw_list, urls)
+
+                            st.write("### 🎯 Gotowe dopasowania linków:")
+                            if not df_final.empty:
+                                st.dataframe(df_final, use_container_width=True)
+
+                                csv_data = df_final.to_csv(index=False).encode('utf-8')
+                                st.download_button(
+                                    label="📥 Pobierz końcowy raport CSV",
+                                    data=csv_data,
+                                    file_name="gotowe_linkowanie_seo.csv",
+                                    mime="text/csv"
+                                )
+                            else:
+                                st.warning("AI nie znalazło ścisłych dopasowań w sitemapie dla tych fraz.")
+
+                        except Exception as e:
+                            st.error(f"Błąd podczas dopasowywania sitemapy: {e}")
         else:
-            st.info("Wprowadź dane po lewej stronie i kliknij przycisk, aby AI przeanalizowało kontekst artykułu.")
+            st.info("👈 Najpierw wklej artykuł i kliknij 'Krok 1: Analizuj tekst', aby wygenerować propozycje fraz.")
+            
