@@ -33,6 +33,13 @@ if "article_url_val" not in st.session_state:
     st.session_state.article_url_val = ""
 
 
+# Rozszerzenia plików do wykluczenia z sitemapy (pliki, obrazki, media)
+IGNORED_EXTENSIONS = (
+    '.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp', '.ico',
+    '.pdf', '.zip', '.rar', '.doc', '.docx', '.xls', '.xlsx', '.mp3', '.mp4'
+)
+
+
 # --- FUNKCJE POMOCNICZE ---
 
 def get_sitemap_from_robots(url_or_domain):
@@ -114,8 +121,16 @@ def get_urls_from_sitemap(url, progress_callback=None, visited=None, total_state
     for elem in root.iter():
         if elem.tag.endswith('loc') and elem.text:
             loc = elem.text.strip()
-            if loc.endswith('.xml') or 'sitemap' in loc.lower():
-                sub_sitemaps.append(loc)
+            loc_lower = loc.lower()
+            
+            # Filtrujemy pliki niebędące stronami www (obrazy, dokumenty, pliki)
+            if loc_lower.endswith(IGNORED_EXTENSIONS):
+                continue
+
+            if loc_lower.endswith('.xml') or 'sitemap' in loc_lower:
+                # Ignorujemy sitemapy przeznaczone wyłącznie dla obrazów
+                if 'image' not in loc_lower and 'photo' not in loc_lower:
+                    sub_sitemaps.append(loc)
             else:
                 page_urls.append(loc)
 
@@ -123,7 +138,7 @@ def get_urls_from_sitemap(url, progress_callback=None, visited=None, total_state
     total_state["count"] += len(page_urls)
 
     if progress_callback:
-        progress_callback(f"Pobrano {total_state['count']} URL-i z sitemapy...")
+        progress_callback(f"Pobrano {total_state['count']} URL-i ze stronami...")
 
     for sub_url in sub_sitemaps:
         if sub_url not in visited:
@@ -397,13 +412,15 @@ elif st.session_state.current_tool == "linker":
             # --- OPCJE FILTROWANIA SITEMAPY ---
             with st.expander("⚙️ Zaawansowane filtry URL-i z sitemapy (opcjonalnie)", expanded=False):
                 include_filter = st.text_input(
-                    "Musi zawierać w URL (np. /kategoria/, /blog/):", 
+                    "Musi zawierać w URL:", 
                     value="", 
+                    placeholder="np. /kategoria/, /blog/",
                     help="Podaj fragment ciągu, który MUSI znajdować się w adresie. Możesz wpisać kilka wartości rozdzielonych przecinkiem."
                 )
                 exclude_filter = st.text_input(
-                    "Wyklucz z URL (np. /p/, /tag/):", 
-                    value="/p/", 
+                    "Wyklucz z URL:", 
+                    value="", 
+                    placeholder="np. /p/, /tag/",
                     help="Podaj fragment ciągu, który WYKLUCZY dany adres (np. /p/ wyklucza bezpośrednie produkty)."
                 )
 
@@ -448,7 +465,7 @@ elif st.session_state.current_tool == "linker":
                             exc_patterns = [p.strip().lower() for p in exclude_filter.split(",") if p.strip()]
                             filtered_urls = [u for u in filtered_urls if not any(p in u.lower() for p in exc_patterns)]
 
-                        st.info(f"Po przefiltrowaniu pozostało {len(filtered_urls)} z {len(raw_urls)} adresów URL.")
+                        st.info(f"Po przefiltrowaniu pozostało {len(filtered_urls)} z {len(raw_urls)} adresów URL stron.")
 
                         # 60% - Dopasowywanie AI
                         progress_bar.progress(60)
