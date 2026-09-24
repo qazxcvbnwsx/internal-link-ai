@@ -1,11 +1,11 @@
 streamlit
 pandas
 scikit-learn
-spacy==3.7.4
-https://github.com/explosion/spacy-models/releases/download/pl_core_news_sm-3.7.0/pl_core_news_sm-3.7.0-py3-none-any.whl
 requests
 beautifulsoup4
 lxml
 openai
 python-dotenv
 trafilatura
+spacy
+https://github.com/explosion/spacy-models/releases/download/pl_core_news_sm-3.7.0/pl_core_news_sm-3.7.0-py3-none-any.whl
