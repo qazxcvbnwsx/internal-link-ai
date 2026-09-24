@@ -125,22 +125,26 @@ def get_urls_from_sitemap(url, visited=None):
     return list(dict.fromkeys(urls))
 
 
-# --- ANALIZA KROK 1: Wykrywanie słów kluczowych przez AI ---
+# --- ANALIZA KROK 1: Wykrywanie słów kluczowych przez AI (USPRAWNIONE) ---
 def extract_keywords_with_ai(api_key, article_text):
     client = OpenAI(api_key=api_key)
     
     prompt = f"""
-Przeanalizuj poniższy tekst artykułu SEO.
-Twoim zadaniem jest znalezienie 6-12 najważniejszych fraz/słów kluczowych (np. nazwy produktów, kategorii, materiałów, stylów), które FAKTYCZNIE występują w tym tekście i stanowią idealne anchory pod linkowanie wewnętrzne.
+Przeanalizuj poniższy tekst pod kątem SEO i linkowania wewnętrznego.
+Twoim zadaniem jest znalezienie 8-15 fraz i słów kluczowych (np. nazwy modeli, technologie, nazwy systemów, typy urządzeń/maszyn, pojęcia branżowe), które DOSŁOWNIE lub PRAWIE DOSŁOWNIE występują w podanym tekście i stanowią idealne anchory pod linki wewnętrzne.
+
+Oto rodzaje fraz, które MUSISZ wyciągnąć z tego tekstu:
+1. Nazwy konkretnych modeli / produktów (np. "NOVACAT F 3100 OPTICURVE", "Kuhn GMD 15030", "Krone EasyCut B 1250 Fold")
+2. Nazwy własne technologii/systemów (np. "Profiline", "ISOBUS", "ACTIVE FLOAT", "LIFT-CONTROL", "DSS")
+3. Kategorie produktowe i opisy (np. "Kosiarki rolnicze do zielonek", "kosiarka z kondycjonerem", "sterowanie bocznego przesuwu", "kopiowanie podłoża", "kosiarka czołowa")
 
 ZWRÓĆ WYNIK W FORMACIE TABELI Z KOLUMNAMI ROZDZIELONYMI ŚREDNIKIEM (;):
 Fraza z tekstu;Proponowana tematyka linku;Uzasadnienie
 
 Zasady:
-1. Szukaj fraz takich jak np. nazwy mebli, materiałów, kategorii sklepowych (np. "meble z litego drewna", "komody bukowe", "witryny", "zestaw mebli").
-2. Fraza MUSI znajdować się dokładnie lub w zbliżonej formie w poniższym tekście.
-3. Zwróć od 6 do 12 najlepszych propozycji.
-4. NIE PISZ żadnego wstępu ani opisu - zwróć wyłącznie linie tabeli rozdzielone średnikami!
+- Każda fraza musi pochodzić z podanego tekstu!
+- Zwróć dokładnie od 8 do 15 propozycji.
+- ABSOLUTNY ZAKAZ dodawania wstępów, komentarzy czy nagłówków. Zwróć SAMĄ treść tabeli (linie rozdzielone średnikami)!
 
 TEKST ARTYKUŁU:
 {article_text[:12000]}
@@ -149,10 +153,10 @@ TEKST ARTYKUŁU:
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
-            {"role": "system", "content": "Jesteś ekspertem SEO ds. analizy semantycznej tekstu i architektury informacji."},
+            {"role": "system", "content": "Jesteś analitykiem SEO i architektem informacji specjalizującym się w linkowaniu wewnętrznym."},
             {"role": "user", "content": prompt}
         ],
-        temperature=0.2
+        temperature=0.1
     )
 
     result_text = response.choices[0].message.content.strip()
@@ -160,26 +164,27 @@ TEKST ARTYKUŁU:
     rows = []
     for line in result_text.split("\n"):
         line_clean = line.strip()
-        if ";" in line_clean and not line_clean.lower().startswith("fraza"):
+        # Ignorujemy nagłówki tabeli jeśli AI je wypluje
+        if ";" in line_clean and not any(h in line_clean.lower() for h in ["fraza z tekstu", "proponowana tematyka"]):
             parts = line_clean.split(";")
             if len(parts) >= 3:
                 rows.append({
-                    "Fraza w tekście (Anchor)": parts[0].replace("`", "").strip(),
+                    "Fraza w tekście (Anchor)": parts[0].replace("`", "").replace("*", "").strip(),
                     "Tematyka docelowa": parts[1].strip(),
                     "Uzasadnienie": parts[2].strip()
                 })
     return pd.DataFrame(rows)
 
 
-# --- ANALIZA KROK 2: Dopasowywanie fraz do sitemapy przez AI ---
+# --- ANALIZA KROK 2: Dopasowywanie fraz do sitemapy przez AI (USPRAWNIONE) ---
 def match_keywords_to_sitemap(api_key, keywords_list, urls):
     client = OpenAI(api_key=api_key)
     
-    urls_formatted = "\n".join(urls[:300])
+    urls_formatted = "\n".join(urls[:350])
     keywords_formatted = ", ".join(keywords_list)
     
     prompt = f"""
-Twoim zadaniem jest dopasowanie poniższych fraz kluczowych do najbardziej pasujących adresów URL z sitemapy sklepu/strony.
+Twoim zadaniem jest dopasowanie poniższych fraz kluczowych do najbardziej pasujących adresów URL z sitemapy strony/sklepu.
 
 LISTA WYKRYTYCH FRAZ Z TEKSTU:
 {keywords_formatted}
@@ -191,18 +196,18 @@ ZWRÓĆ WYNIK W FORMACIE TABELI Z KOLUMNAMI ROZDZIELONYMI ŚREDNIKIEM (;):
 Fraza / Anchor;Rekomendowany URL;Uzasadnienie dopasowania
 
 Zasady:
-1. Dopasuj tylko te adresy URL, które tematycznie odpowiadają frazie (np. frazę 'komody bukowe' dopasuj do URL zawierającego 'komody' lub 'komody-bukowe').
-2. Jeśli dla danej frazy brak pasującego URL w sitemapie, po prostu ją pomiń.
-3. NIE PISZ żadnego wstępu ani podsumowania - zwróć tylko linie danych rozdzielone średnikiem.
+1. Dopasuj te adresy URL z sitemapy, które tematycznie lub słownie odpowiadają frazie (np. frazę 'NOVACAT F 3100' dopasuj do URL zawierającego tę nazwę, a frazę 'kosiarki rolnicze' do kafelka/kategorii z kosiarkami).
+2. Jeśli dla danej frazy brak jakiegokolwiek logicznego odpowiednika w sitemapie, pomiń ją.
+3. NIE PISZ żadnego wstępu ani podsumowania - zwróć wyłącznie linie danych rozdzielone średnikiem.
 """
 
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
-            {"role": "system", "content": "Jesteś ekspertem SEO od architektury linkowania wewnętrznego w e-commerce."},
+            {"role": "system", "content": "Jesteś ekspertem SEO ds. dopasowywania struktury URL i architektur linków."},
             {"role": "user", "content": prompt}
         ],
-        temperature=0.2
+        temperature=0.1
     )
 
     result_text = response.choices[0].message.content.strip()
@@ -210,11 +215,11 @@ Zasady:
     rows = []
     for line in result_text.split("\n"):
         line_clean = line.strip()
-        if ";" in line_clean and not line_clean.lower().startswith("fraza"):
+        if ";" in line_clean and not any(h in line_clean.lower() for h in ["fraza / anchor", "rekomendowany url"]):
             parts = line_clean.split(";")
             if len(parts) >= 3:
                 rows.append({
-                    "Sugerowany Anchor Text": parts[0].replace("`", "").strip(),
+                    "Sugerowany Anchor Text": parts[0].replace("`", "").replace("*", "").strip(),
                     "Rekomendowany URL": parts[1].strip(),
                     "Uzasadnienie AI": parts[2].strip()
                 })
@@ -325,13 +330,15 @@ elif st.session_state.current_tool == "linker":
         st.subheader("2. Wykryte frazy przez AI")
 
         if st.session_state.detected_keywords is not None:
-            st.success("✅ AI wytypowało frazy z tekstu, które nadają się do podlinkowania:")
-            st.dataframe(st.session_state.detected_keywords, use_container_width=True)
+            if not st.session_state.detected_keywords.empty:
+                st.success(f"✅ AI wytypowało {len(st.session_state.detected_keywords)} fraz z tekstu:")
+                st.dataframe(st.session_state.detected_keywords, use_container_width=True)
+            else:
+                st.warning("⚠️ Nie udało się wyodrębnić jednoznacznych tabelarycznych wyników. Spróbuj kliknąć analizę ponownie.")
 
             st.write("---")
             st.subheader("3. Dopasuj linki z Sitemapy")
             
-            # Przycisk do automatycznego pobierania sitemapy z robots.txt
             col_btn, col_info = st.columns([1, 1])
             with col_btn:
                 fetch_robots_btn = st.button("🤖 Pobierz automatycznie z robots.txt")
@@ -349,7 +356,6 @@ elif st.session_state.current_tool == "linker":
                         else:
                             st.error("Nie znaleziono ścieżki do sitemapy w pliku robots.txt.")
 
-            # Pole do wklejenia lub wygenerowania adresu sitemapy
             sitemap_input = st.text_input(
                 "Adres Sitemapy XML:", 
                 value=st.session_state.sitemap_url_val,
