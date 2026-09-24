@@ -146,6 +146,72 @@ def get_urls_from_sitemap(url, progress_callback=None, visited=None, total_state
     return list(dict.fromkeys(urls))
 
 
+# --- KLASYFIKATOR AI: ODRZUCANIE PRODUKTÓW Z SITEMAPY ---
+def filter_out_products_with_ai(api_key, urls):
+    """Analizuje strukturę adresów URL i wyklucza te, które stanowią pojedyncze produkty w sklepie."""
+    if not urls:
+        return urls
+
+    client = OpenAI(api_key=api_key)
+    
+    # Wybieramy reprezentatywną próbkę pierwszych 100 URL-i do nauczenia wzorca
+    sample_urls = urls[:120]
+    
+    prompt = f"""
+Przeanalizuj poniższą listę adresów URL ze sklepu/strony internetowej.
+Twoim zadaniem jest rozpoznanie struktury URL i podanie ZASAD FILTROWANIA (wzorców w URL), które pozwolą ODRZUCIĆ karty pojedynczych produktów, a ZOSTAWIĆ wyłącznie kategorie, podkategorie, markowe strony zbiorcze i strony informacyjne.
+
+PRÓBKA ADRESÓW URL:
+{chr(10).join(sample_urls)}
+
+ZWRÓĆ WYNIK W FORMACIE JSON BEZ ŻADNEGO DODATKOWEGO TEKSTU:
+{{
+  "exclude_patterns": ["wzorzec1", "wzorzec2"],
+  "include_patterns": ["wzorzec1", "wzorzec2"]
+}}
+
+Przykład: jeśli produkty zawierają "/p/" lub "-p-" lub kończą się ciągiem cyfr SKU (np. -1234.html), dodaj te fragmenty do 'exclude_patterns'. Jeśli kategorie są w "/kategoria/" lub "/c/", dodaj to do 'include_patterns'.
+"""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "Jesteś analitykiem struktur URL dla e-commerce. Zwracasz wyłącznie czysty JSON."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.0
+        )
+
+        import json
+        res_content = response.choices[0].message.content.strip()
+        if res_content.startswith("```json"):
+            res_content = res_content.replace("```json", "").replace("```", "").strip()
+        
+        rules = json.loads(res_content)
+        exclude_p = [p.lower() for p in rules.get("exclude_patterns", []) if p]
+        include_p = [p.lower() for p in rules.get("include_patterns", []) if p]
+
+        filtered = []
+        for u in urls:
+            u_lower = u.lower()
+            
+            # Jeśli podano wzorce zawierania, URL musi pasować
+            if include_p and not any(inc in u_lower for inc in include_p):
+                continue
+                
+            # Jeśli URL pasuje do wzorca wykluczającego produkt, odrzucamy go
+            if exclude_p and any(exc in u_lower for exc in exclude_p):
+                continue
+                
+            filtered.append(u)
+
+        return filtered if filtered else urls
+    except Exception:
+        # W razie błędu parsowania JSON wracamy do domyślnych bezpiecznych zasad heurystycznych
+        return [u for u in urls if not any(p in u.lower() for p in ["/p/", "-p-", "/produkt/", "/product/"])]
+
+
 # --- ANALIZA KROK 1: Wykrywanie słów kluczowych przez AI ---
 def extract_keywords_with_ai(api_key, article_text):
     client = OpenAI(api_key=api_key)
@@ -209,14 +275,14 @@ Twoim zadaniem jest dopasowanie poniższych fraz kluczowych do najbardziej pasuj
 LISTA WYKRYTYCH FRAZ Z TEKSTU:
 {keywords_formatted}
 
-LISTA ADRESÓW URL Z SITEMAPY:
+LISTA ADRESÓW URL Z SITEMAPY (WYSELEKCJONOWANE KATEGORIE I STRONY ZBIORCZE):
 {urls_formatted}
 
 ZWRÓĆ WYNIK W FORMACIE TABELI Z KOLUMNAMI ROZDZIELONYMI ŚREDNIKIEM (;):
 Fraza / Anchor;Rekomendowany Pełny URL;Uzasadnienie dopasowania
 
 Zasady:
-1. Dopasuj PEŁNE adresy URL z sitemapy (np. https://domena.pl/kategoria/), które tematycznie lub słownie odpowiadają frazie.
+1. Dopasuj PEŁNE adresy URL z sitemapy (np. [https://domena.pl/kategoria/](https://domena.pl/kategoria/)), które tematycznie lub słownie odpowiadają frazie.
 2. W kolumnie 'Rekomendowany Pełny URL' musisz podać BEZPOŚREDNI, PEŁNY ADRES URL (z https://).
 3. Jeśli dla danej frazy brak jakiegokolwiek logicznego odpowiednika w sitemapie, pomiń ją.
 4. NIE PISZ żadnego wstępu ani podsumowania - zwróć wyłącznie linie danych rozdzielone średnikiem.
@@ -312,7 +378,7 @@ elif st.session_state.current_tool == "linker":
             with st.container(height=250):
                 st.markdown(current_text)
     else:
-        article_url = st.text_input("Adres URL wpisu:", placeholder="https://twojadomena.pl/moj-artykul", key="input_art_url")
+        article_url = st.text_input("Adres URL wpisu:", placeholder="[https://twojadomena.pl/moj-artykul](https://twojadomena.pl/moj-artykul)", key="input_art_url")
         if article_url:
             st.session_state.article_url_val = article_url
             with st.spinner("Pobieranie i formatowanie treści ze strony..."):
@@ -336,13 +402,13 @@ elif st.session_state.current_tool == "linker":
     # TRYB 1: SZYBKA ANALIZACJA (AUTOMATYCZNA)
     # ==========================================
     with mode_tab1:
-        st.write("W tym trybie system pobierze sitemapę, znajdzie frazy kluczowe i wygeneruje od razu gotową tabelę linkowania.")
+        st.write("W tym trybie system pobierze sitemapę, **automatycznie wykryje i odrzuci karty produktów**, po czym wygeneruje od razu gotową tabelę linków do kategorii.")
         
         col_sitemap_fast, col_empty = st.columns([2, 1])
         with col_sitemap_fast:
             fast_sitemap_input = st.text_input(
                 "Adres Sitemapy XML (opcjonalnie - jeśli puste, pobierzemy automatycznie z robots.txt):", 
-                placeholder="https://twojadomena.pl/sitemap.xml",
+                placeholder="[https://twojadomena.pl/sitemap.xml](https://twojadomena.pl/sitemap.xml)",
                 key="fast_sitemap_key"
             )
 
@@ -363,7 +429,7 @@ elif st.session_state.current_tool == "linker":
                     # 1. Pobieranie / wykrywanie sitemapy
                     sitemap_to_use = fast_sitemap_input.strip()
                     if not sitemap_to_use:
-                        status_fast.markdown("**[1/4] Szukanie sitemapy w pliku robots.txt...**")
+                        status_fast.markdown("**[1/5] Szukanie sitemapy w pliku robots.txt...**")
                         progress_fast.progress(10)
                         
                         target_dom = st.session_state.article_url_val
@@ -377,20 +443,26 @@ elif st.session_state.current_tool == "linker":
                             st.stop()
 
                     # 2. Pobieranie adresów URL
-                    status_fast.markdown(f"**[2/4] Pobieranie URL-i z sitemapy ({sitemap_to_use})...**")
-                    progress_fast.progress(25)
+                    status_fast.markdown(f"**[2/5] Pobieranie URL-i z sitemapy ({sitemap_to_use})...**")
+                    progress_fast.progress(20)
                     
                     def fast_update_status(msg):
                         elapsed = int(time.time() - start_time_fast)
                         timer_fast.caption(f"⏱️ Czas trwania: {elapsed} sek.")
-                        status_fast.markdown(f"**[2/4] {msg}**")
+                        status_fast.markdown(f"**[2/5] {msg}**")
 
-                    urls = get_urls_from_sitemap(sitemap_to_use, progress_callback=fast_update_status)
-                    st.info(f"Pobrano łącznie {len(urls)} adresów podstron z sitemapy.")
+                    raw_urls = get_urls_from_sitemap(sitemap_to_use, progress_callback=fast_update_status)
 
-                    # 3. Wyciąganie fraz kluczowych z tekstu przez AI
-                    status_fast.markdown("**[3/4] AI analizuje tekst i wyciąga słowa kluczowe / anchory...**")
-                    progress_fast.progress(55)
+                    # 3. Klasyfikacja AI i usuwanie kart produktów z sitemapy
+                    status_fast.markdown(f"**[3/5] Klasyfikator AI rozpoznaje strukturę i wyklucza karty produktów z {len(raw_urls)} adresów...**")
+                    progress_fast.progress(40)
+
+                    filtered_category_urls = filter_out_products_with_ai(api_key_input, raw_urls)
+                    st.info(f"Po automatycznym wykluczeniu kart produktów pozostało **{len(filtered_category_urls)} adresów kategorii i podstron zbiorczych** (z {len(raw_urls)} ogółem).")
+
+                    # 4. Wyciąganie fraz kluczowych z tekstu przez AI
+                    status_fast.markdown("**[4/5] AI analizuje tekst i wyciąga słowa kluczowe / anchory...**")
+                    progress_fast.progress(65)
                     elapsed = int(time.time() - start_time_fast)
                     timer_fast.caption(f"⏱️ Czas trwania: {elapsed} sek.")
 
@@ -402,12 +474,12 @@ elif st.session_state.current_tool == "linker":
                         st.warning("Nie udało się odnaleźć reprezentatywnych fraz kluczowych w podanym tekście.")
                         st.stop()
 
-                    # 4. Dopasowywanie słów kluczowych do sitemapy
-                    status_fast.markdown("**[4/4] AI dopasowuje anchory do adresów URL z sitemapy...**")
+                    # 5. Dopasowywanie słów kluczowych do sitemapy
+                    status_fast.markdown("**[5/5] AI dopasowuje anchory do adresów kategorii z sitemapy...**")
                     progress_fast.progress(85)
 
                     kw_list_fast = df_kw_fast["Fraza w tekście (Anchor)"].tolist()
-                    df_final_fast = match_keywords_to_sitemap(api_key_input, kw_list_fast, urls)
+                    df_final_fast = match_keywords_to_sitemap(api_key_input, kw_list_fast, filtered_category_urls)
 
                     progress_fast.progress(100)
                     total_elapsed_fast = round(time.time() - start_time_fast, 1)
@@ -415,7 +487,7 @@ elif st.session_state.current_tool == "linker":
                     timer_fast.empty()
 
                     st.write("---")
-                    st.write("### 🎯 Gotowe dopasowania linkowania wewnętrznego:")
+                    st.write("### 🎯 Gotowe dopasowania linkowania wewnętrznego (Kategorie):")
                     if not df_final_fast.empty:
                         st.dataframe(
                             df_final_fast,
@@ -432,7 +504,7 @@ elif st.session_state.current_tool == "linker":
                         st.download_button(
                             label="📥 Pobierz końcowy raport CSV",
                             data=csv_data_fast,
-                            file_name="szybkie_linkowanie_seo.csv",
+                            file_name="szybkie_linkowanie_kategorie.csv",
                             mime="text/csv"
                         )
                     else:
@@ -448,7 +520,7 @@ elif st.session_state.current_tool == "linker":
     # TRYB 2: ANALIZA KROK PO KROKU (NADZOROWANA)
     # ==========================================
     with mode_tab2:
-        st.write("Ten tryb pozwala na bieżąco kontrolować wygenerowane frazy po Kroku 1 oraz filtrować URL-e z sitemapy przed wysłaniem zapytań.")
+        st.write("Ten tryb pozwala na bieżąco kontrolować wygenerowane frazy po Kroku 1 oraz ręcznie filtrować URL-e z sitemapy przed wysłaniem zapytań.")
         
         analyze_step1_btn = st.button("🔍 Krok 1: Analizuj tekst i znajdź frazy do linkowania", type="primary", use_container_width=True)
 
@@ -525,7 +597,7 @@ elif st.session_state.current_tool == "linker":
             sitemap_input = st.text_input(
                 "Adres Sitemapy XML:", 
                 value=st.session_state.sitemap_url_val,
-                placeholder="https://twojadomena.pl/sitemap.xml",
+                placeholder="[https://twojadomena.pl/sitemap.xml](https://twojadomena.pl/sitemap.xml)",
                 help="Możesz wkleić adres sitemapy ręcznie lub pobrać go automatycznie przyciskiem powyżej."
             )
 
