@@ -1,284 +1,156 @@
+import xml.etree.ElementTree as ET
+import re
+import urllib.request
+import pandas as pd
 import streamlit as st
-from internal_linking.ui import show_internal_linking
+import spacy
+from sklearn.feature_extraction.text import TfidfVectorizer
 
+# Ładowanie polskiego modelu językowego
+@st.cache_resource
+def load_nlp():
+    return spacy.load("pl_core_news_sm")
+
+nlp = load_nlp()
 
 st.set_page_config(
-    page_title="SEO Tools AI",
-    page_icon="🔗",
+    page_title="SEO Smart Link Finder",
+    page_icon="🚜",
     layout="wide"
 )
 
+st.title("🚜 Inteligenty Generator Linkowania Wewnętrznego")
+st.caption("Analizuje tematykę wpisu i automatycznie dobiera najbardziej pasujące adresy z sitemapy.")
 
-st.markdown(
-    """
-    <style>
+if "topics" not in st.session_state:
+    st.session_state.topics = None
 
-    .main {
-        background: #f7f8fa;
-    }
-
-    .hero {
-        padding: 45px 0 35px 0;
-    }
-
-    .hero h1 {
-        font-size: 42px;
-        font-weight: 700;
-        margin-bottom: 10px;
-        color: #111827;
-    }
-
-    .hero p {
-        font-size: 18px;
-        color: #6b7280;
-        margin-top: 0;
-    }
-
-    .page-title {
-        font-size: 32px;
-        font-weight: 700;
-        color: #111827;
-        margin-bottom: 8px;
-    }
-
-    .page-description {
-        color: #6b7280;
-        font-size: 16px;
-        margin-bottom: 30px;
-    }
-
-    .article-preview {
-        background: #ffffff;
-        border: 1px solid #e5e7eb;
-        border-radius: 12px;
-        padding: 30px 40px;
-        margin-top: 20px;
-        color: #1f2937;
-        line-height: 1.75;
-        font-size: 16px;
-        height: 520px;
-        overflow-y: auto;
-        scroll-behavior: smooth;
-    }
-
-    .article-preview h1 {
-        font-size: 30px;
-        margin-top: 0;
-        margin-bottom: 20px;
-        color: #111827;
-    }
-
-    .article-preview h2 {
-        font-size: 24px;
-        margin-top: 30px;
-        margin-bottom: 12px;
-        color: #111827;
-    }
-
-    .article-preview h3 {
-        font-size: 20px;
-        margin-top: 25px;
-        margin-bottom: 10px;
-        color: #111827;
-    }
-
-    .article-preview h4 {
-        font-size: 18px;
-        margin-top: 20px;
-        margin-bottom: 8px;
-        color: #111827;
-    }
-
-    .article-preview p {
-        margin-bottom: 16px;
-    }
-
-    .article-preview ul,
-    .article-preview ol {
-        margin-bottom: 18px;
-        padding-left: 25px;
-    }
-
-    .article-preview a {
-        color: #2563eb;
-        text-decoration: underline;
-        font-weight: 500;
-    }
-
-    .candidate-table-wrapper {
-        width: 100%;
-        overflow-x: auto;
-        margin-top: 15px;
-        margin-bottom: 25px;
-    }
-
-    .candidate-table {
-        width: 100%;
-        border-collapse: collapse;
-        background: #ffffff;
-        border: 1px solid #e5e7eb;
-        border-radius: 12px;
-        overflow: hidden;
-        font-size: 14px;
-    }
-
-    .candidate-table th {
-        text-align: left;
-        padding: 14px 16px;
-        background: #f9fafb;
-        border-bottom: 1px solid #e5e7eb;
-        color: #111827;
-        font-weight: 600;
-    }
-
-    .candidate-table td {
-        padding: 14px 16px;
-        border-bottom: 1px solid #e5e7eb;
-        vertical-align: top;
-        line-height: 1.7;
-    }
-
-    .candidate-table tr:last-child td {
-        border-bottom: none;
-    }
-
-    .phrase-cell {
-        width: 42%;
-        color: #111827;
-    }
-
-    .url-cell {
-        width: 58%;
-        word-break: break-word;
-    }
-
-    .url-cell a {
-        color: #2563eb;
-        text-decoration: none;
-    }
-
-    .url-cell a:hover {
-        text-decoration: underline;
-    }
-
-    .no-match {
-        color: #9ca3af;
-        font-style: italic;
-    }
-
-    </style>
-    """,
-    unsafe_allow_html=True
-)
-
-
-if "page" not in st.session_state:
-
-    st.session_state["page"] = "home"
-
-
-if st.session_state["page"] == "internal_links":
-
-    show_internal_linking()
-
-    st.stop()
-
-
-st.markdown(
-    """
-    <div class="hero">
-
-        <h1>SEO Tools AI</h1>
-
-        <p>
-            Proste narzędzia SEO wykorzystujące AI
-            do codziennej pracy.
-        </p>
-
-    </div>
-    """,
-    unsafe_allow_html=True
-)
-
-
-col1, col2, col3 = st.columns(3)
-
+col1, col2 = st.columns([1, 2])
 
 with col1:
+    st.subheader("1. Wprowadź dane")
+    sitemap_input = st.text_input("Adres Sitemapy XML:", placeholder="https://twojadomena.pl/sitemap.xml")
+    text_input = st.text_area("Tekst do analizy:", height=300, placeholder="Wklej tutaj treść artykułu...")
 
-    with st.container(
-        border=True
-    ):
+    analyze_topic_btn = st.button("📊 Krok 1: Sprawdź tematykę wpisu", type="secondary")
 
-        st.markdown(
-            "### 🔗 Internal Linking AI"
-        )
 
-        st.write(
-            "Znajdź naturalne miejsca na "
-            "linki wewnętrzne w artykule."
-        )
+def extract_key_topics(text, top_n=5):
+    doc = nlp(text.lower())
+    words = [token.lemma_ for token in doc if token.pos_ in ["NOUN", "ADJ"] and len(token.lemma_) > 3 and not token.is_stop]
 
-        st.caption(
-            "Analiza treści + sitemap + AI"
-        )
+    if not words:
+        return []
 
-        if st.button(
-            "Otwórz narzędzie",
-            key="internal_links_button",
-            use_container_width=True
-        ):
+    cleaned_text = " ".join(words)
+    vectorizer = TfidfVectorizer(max_features=top_n)
+    tfidf_matrix = vectorizer.fit_transform([cleaned_text])
+    feature_names = vectorizer.get_feature_names_out()
 
-            st.session_state[
-                "page"
-            ] = "internal_links"
+    return list(feature_names)
 
-            st.rerun()
 
+def fetch_and_parse_xml(url):
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+    }
+    req = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(req, timeout=10) as response:
+        xml_data = response.read()
+    return ET.fromstring(xml_data)
+
+
+def get_urls_from_sitemap(url, visited=None):
+    if visited is None:
+        visited = set()
+
+    if url in visited:
+        return []
+    visited.add(url)
+
+    urls = []
+    try:
+        root = fetch_and_parse_xml(url)
+    except Exception:
+        return urls
+
+    sub_sitemaps = []
+    page_urls = []
+
+    for elem in root.iter():
+        if elem.tag.endswith('loc') and elem.text:
+            loc = elem.text.strip()
+            if loc.endswith('.xml') or 'sitemap' in loc.lower():
+                sub_sitemaps.append(loc)
+            else:
+                page_urls.append(loc)
+
+    urls.extend(page_urls)
+
+    for sub_url in sub_sitemaps:
+        if sub_url not in visited:
+            urls.extend(get_urls_from_sitemap(sub_url, visited))
+
+    return list(dict.fromkeys(urls))
+
+
+if analyze_topic_btn:
+    if text_input.strip():
+        with st.spinner("Analizowanie tekstu pod kątem tematyki..."):
+            st.session_state.topics = extract_key_topics(text_input)
+    else:
+        st.error("Wklej tekst do pola po lewej stronie.")
 
 with col2:
+    st.subheader("2. Raport Tematyczny & Linkowanie")
 
-    with st.container(
-        border=True
-    ):
+    if st.session_state.topics:
+        st.success("✅ Wykryto główną tematykę wpisu!")
+        
+        st.write("**Główne tematy / Słowa kluczowe artykułu:**")
+        st.write(" ".join([f"`{topic.upper()}`" for topic in st.session_state.topics]))
 
-        st.markdown(
-            "### 🔎 SEO Audit"
-        )
+        st.divider()
+        
+        match_links_btn = st.button("🔗 Krok 2: Dopasuj linki z sitemapy do wykrytej tematyki", type="primary")
 
-        st.write(
-            "Szybka analiza podstawowych "
-            "elementów SEO strony."
-        )
+        if match_links_btn:
+            if not sitemap_input:
+                st.error("Podaj adres sitemapy XML!")
+            else:
+                with st.spinner("Przeszukiwanie sitemapy i filtrowanie według tematu..."):
+                    try:
+                        urls = get_urls_from_sitemap(sitemap_input)
+                        matched_results = []
 
-        st.caption(
-            "Wkrótce"
-        )
+                        for url in urls:
+                            slug = url.rstrip("/").split("/")[-1].replace("-", " ")
+                            slug_doc = nlp(slug.lower())
+                            slug_lemmas = [t.lemma_ for t in slug_doc]
 
-        st.info(
-            "Narzędzie będzie dostępne wkrótce."
-        )
+                            for topic in st.session_state.topics:
+                                if topic in slug_lemmas or topic in slug:
+                                    matched_results.append({
+                                        "Kategoria / Temat": topic.upper(),
+                                        "Słowo z URL": slug,
+                                        "Sugerowany URL": url
+                                    })
 
+                        if matched_results:
+                            df = pd.DataFrame(matched_results).drop_duplicates(subset=["Sugerowany URL"])
+                            st.dataframe(df, use_container_width=True)
 
-with col3:
-
-    with st.container(
-        border=True
-    ):
-
-        st.markdown(
-            "### ✍️ Content Analysis"
-        )
-
-        st.write(
-            "Analiza treści pod kątem SEO, "
-            "struktury i tematów."
-        )
-
-        st.caption(
-            "Wkrótce"
-        )
-
-        st.info(
-            "Narzędzie będzie dostępne wkrótce."
-        )
+                            csv_data = df.to_csv(index=False).encode('utf-8')
+                            st.download_button(
+                                label="📥 Pobierz raport CSV",
+                                data=csv_data,
+                                file_name="linki_tematyczne.csv",
+                                mime="text/csv"
+                            )
+                        else:
+                            st.info("Nie znaleziono w sitemapie adresów pasujących do tej konkretnej tematyki.")
+                    except Exception as e:
+                        st.error(f"Błąd: {e}")
+    else:
+        st.info("Wklej artykuł po lewej stronie i kliknij 'Sprawdź tematykę wpisu', aby rozpocząć.")
