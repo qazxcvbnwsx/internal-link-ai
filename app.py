@@ -199,12 +199,13 @@ LISTA ADRESÓW URL Z SITEMAPY:
 {urls_formatted}
 
 ZWRÓĆ WYNIK W FORMACIE TABELI Z KOLUMNAMI ROZDZIELONYMI ŚREDNIKIEM (;):
-Fraza / Anchor;Rekomendowany URL;Uzasadnienie dopasowania
+Fraza / Anchor;Rekomendowany Pełny URL;Uzasadnienie dopasowania
 
 Zasady:
-1. Dopasuj te adresy URL z sitemapy, które tematycznie lub słownie odpowiadają frazie (np. frazę 'NOVACAT F 3100' dopasuj do URL zawierającego tę nazwę, a frazę 'kosiarki rolnicze' do kafelka/kategorii z kosiarkami).
-2. Jeśli dla danej frazy brak jakiegokolwiek logicznego odpowiednika w sitemapie, pomiń ją.
-3. NIE PISZ żadnego wstępu ani podsumowania - zwróć wyłącznie linie danych rozdzielone średnikiem.
+1. Dopasuj PEŁNE adresy URL z sitemapy (np. https://domena.pl/kategoria/), które tematycznie lub słownie odpowiadają frazie.
+2. W kolumnie 'Rekomendowany Pełny URL' musisz podać BEZPOŚREDNI, PEŁNY ADRES URL (z https://).
+3. Jeśli dla danej frazy brak jakiegokolwiek logicznego odpowiednika w sitemapie, pomiń ją.
+4. NIE PISZ żadnego wstępu ani podsumowania - zwróć wyłącznie linie danych rozdzielone średnikiem.
 """
 
     response = client.chat.completions.create(
@@ -221,12 +222,12 @@ Zasady:
     rows = []
     for line in result_text.split("\n"):
         line_clean = line.strip()
-        if ";" in line_clean and not any(h in line_clean.lower() for h in ["fraza / anchor", "rekomendowany url"]):
+        if ";" in line_clean and not any(h in line_clean.lower() for h in ["fraza / anchor", "rekomendowany pełny url"]):
             parts = line_clean.split(";")
             if len(parts) >= 3:
                 rows.append({
-                    "Sugerowany Anchor Text": parts[0].replace("`", "").replace("*", "").strip(),
-                    "Rekomendowany URL": parts[1].strip(),
+                    "Fraza / Anchor z tekstu": parts[0].replace("`", "").replace("*", "").strip(),
+                    "Rekomendowany Pełny URL": parts[1].strip(),
                     "Uzasadnienie AI": parts[2].strip()
                 })
     return pd.DataFrame(rows)
@@ -322,14 +323,38 @@ elif st.session_state.current_tool == "linker":
             elif not current_text.strip():
                 st.error("Podaj treść artykułu lub poprawny link!")
             else:
-                with st.spinner("AI analizuje sformatowaną treść pod kątem fraz kluczowych..."):
-                    try:
-                        st.session_state.article_text_saved = current_text
-                        df_keywords = extract_keywords_with_ai(api_key_input, current_text)
-                        st.session_state.detected_keywords = df_keywords
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Błąd analizy tekstu: {e}")
+                start_time_step1 = time.time()
+                status_text_1 = st.empty()
+                progress_bar_1 = st.progress(0)
+                timer_text_1 = st.empty()
+
+                try:
+                    status_text_1.markdown("**[1/2] Przygotowywanie tekstu do analizy przez AI...**")
+                    progress_bar_1.progress(20)
+                    
+                    elapsed = int(time.time() - start_time_step1)
+                    timer_text_1.caption(f"⏱️ Czas trwania: {elapsed} sek.")
+                    
+                    st.session_state.article_text_saved = current_text
+
+                    status_text_1.markdown("**[2/2] Wyciąganie fraz kluczowych i anchorów przez model GPT-4o-mini...**")
+                    progress_bar_1.progress(60)
+
+                    df_keywords = extract_keywords_with_ai(api_key_input, current_text)
+                    
+                    progress_bar_1.progress(100)
+                    total_elapsed = round(time.time() - start_time_step1, 1)
+                    status_text_1.success(f" Zakończono analizę tekstu w {total_elapsed} sek.!")
+                    timer_text_1.empty()
+
+                    st.session_state.detected_keywords = df_keywords
+                    st.rerun()
+
+                except Exception as e:
+                    status_text_1.empty()
+                    progress_bar_1.empty()
+                    timer_text_1.empty()
+                    st.error(f"Błąd analizy tekstu: {e}")
 
     # --- PRAWA KOLUMNA: KROK 2 I 3 ---
     with col2:
@@ -369,6 +394,19 @@ elif st.session_state.current_tool == "linker":
                 help="Możesz wkleić adres sitemapy ręcznie lub pobrać go automatycznie przyciskiem powyżej."
             )
 
+            # --- OPCJE FILTROWANIA SITEMAPY ---
+            with st.expander("⚙️ Zaawansowane filtry URL-i z sitemapy (opcjonalnie)", expanded=False):
+                include_filter = st.text_input(
+                    "Musi zawierać w URL (np. /kategoria/, /blog/):", 
+                    value="", 
+                    help="Podaj fragment ciągu, który MUSI znajdować się w adresie. Możesz wpisać kilka wartości rozdzielonych przecinkiem."
+                )
+                exclude_filter = st.text_input(
+                    "Wyklucz z URL (np. /p/, /tag/):", 
+                    value="/p/", 
+                    help="Podaj fragment ciągu, który WYKLUCZY dany adres (np. /p/ wyklucza bezpośrednie produkty)."
+                )
+
             st.write("")
             match_step2_btn = st.button("🚀 Sprawdź i dopasuj linki z sitemapy", type="primary", use_container_width=True)
 
@@ -384,27 +422,43 @@ elif st.session_state.current_tool == "linker":
 
                     try:
                         # 0% - Start pobierania sitemapy
-                        status_text.markdown("**[1/2] Pobieranie i parsowanie sitemapy XML...**")
+                        status_text.markdown("**[1/3] Pobieranie i parsowanie sitemapy XML...**")
                         progress_bar.progress(10)
                         
                         def update_status(msg):
                             elapsed = int(time.time() - start_time)
                             timer_text.caption(f"⏱️ Czas trwania: {elapsed} sek.")
-                            status_text.markdown(f"**[1/2] {msg}**")
+                            status_text.markdown(f"**[1/3] {msg}**")
 
-                        urls = get_urls_from_sitemap(sitemap_input, progress_callback=update_status)
+                        raw_urls = get_urls_from_sitemap(sitemap_input, progress_callback=update_status)
                         
-                        # 50% - Pobrano sitemapę
-                        progress_bar.progress(50)
+                        # 40% - Filtrowanie URL-i
+                        progress_bar.progress(40)
+                        status_text.markdown(f"**[2/3] Stosowanie filtrów do {len(raw_urls)} pobranych URL-i...**")
+                        
+                        filtered_urls = raw_urls
+                        
+                        # A. Warunek zawierania (Include)
+                        if include_filter.strip():
+                            inc_patterns = [p.strip().lower() for p in include_filter.split(",") if p.strip()]
+                            filtered_urls = [u for u in filtered_urls if any(p in u.lower() for p in inc_patterns)]
+                            
+                        # B. Warunek wykluczania (Exclude)
+                        if exclude_filter.strip():
+                            exc_patterns = [p.strip().lower() for p in exclude_filter.split(",") if p.strip()]
+                            filtered_urls = [u for u in filtered_urls if not any(p in u.lower() for p in exc_patterns)]
+
+                        st.info(f"Po przefiltrowaniu pozostało {len(filtered_urls)} z {len(raw_urls)} adresów URL.")
+
+                        # 60% - Dopasowywanie AI
+                        progress_bar.progress(60)
                         elapsed = int(time.time() - start_time)
-                        status_text.markdown(f"**[2/2] Dopasowywanie {len(urls)} adresów URL przez AI...**")
+                        status_text.markdown(f"**[3/3] Dopasowywanie adresów URL przez AI...**")
                         timer_text.caption(f"⏱️ Czas trwania: {elapsed} sek.")
 
                         kw_list = st.session_state.detected_keywords["Fraza w tekście (Anchor)"].tolist()
 
-                        # 80% - Przetwarzanie AI
-                        progress_bar.progress(80)
-                        df_final = match_keywords_to_sitemap(api_key_input, kw_list, urls)
+                        df_final = match_keywords_to_sitemap(api_key_input, kw_list, filtered_urls)
 
                         # 100% - Zakończono
                         progress_bar.progress(100)
@@ -415,16 +469,14 @@ elif st.session_state.current_tool == "linker":
 
                         st.write("### 🎯 Gotowe dopasowania linków:")
                         if not df_final.empty:
-                            # Konfiguracja tabeli z KLIKALNYMI LINKAMI
+                            # Konfiguracja tabeli z KLIKALNYMI PEŁNYMI LINKAMI
                             st.dataframe(
                                 df_final,
                                 use_container_width=True,
                                 column_config={
-                                    "Rekomendowany URL": st.column_config.LinkColumn(
-                                        "Rekomendowany URL",
-                                        help="Kliknij adres, aby otworzyć go w nowej karcie",
-                                        validate="^https?://",
-                                        display_text=r"https?://(?:www\.)?([^/]+)/?(.*)"
+                                    "Rekomendowany Pełny URL": st.column_config.LinkColumn(
+                                        "Rekomendowany Pełny URL",
+                                        help="Kliknij pełny adres URL, aby otworzyć go w nowej karcie"
                                     )
                                 }
                             )
@@ -437,7 +489,7 @@ elif st.session_state.current_tool == "linker":
                                 mime="text/csv"
                             )
                         else:
-                            st.warning("AI nie znalazło ścisłych dopasowań w sitemapie dla tych fraz.")
+                            st.warning("AI nie znalazło ścisłych dopasowań w przefiltrowanej sitemapie dla tych fraz.")
 
                     except Exception as e:
                         st.error(f"Błąd podczas dopasowywania sitemapy: {e}")
