@@ -207,8 +207,11 @@ elif st.session_state.current_tool == "linker":
                     if fetched_text:
                         article_text = fetched_text
                         st.success(f"Pomyślnie pobrano treść ({len(article_text)} znaków).")
-                        with st.expander("Podgląd pobranej treści"):
-                            st.write(article_text[:500] + "...")
+                        
+                        # Przewijane okno o stałej wysokości dla całej treści
+                        st.write("**Pobrany tekst:**")
+                        with st.container(height=250):
+                            st.write(article_text)
                     else:
                         st.error("Nie udało się pobrać treści z podanego adresu URL.")
 
