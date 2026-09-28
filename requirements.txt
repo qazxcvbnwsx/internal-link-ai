@@ -1,10 +1,11 @@
 streamlit
-pandas
-scikit-learn
-nltk
 requests
 beautifulsoup4
 lxml
 openai
 python-dotenv
 trafilatura
+pandas
+scikit-learn
+spacy==3.7.4
+aiohttp
