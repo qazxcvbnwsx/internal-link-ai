@@ -2,7 +2,6 @@ import os
 import xml.etree.ElementTree as ET
 import urllib.request
 import time
-import json
 import pandas as pd
 import streamlit as st
 import trafilatura
@@ -145,7 +144,7 @@ TEKST:
                 if not status_val or "wolne" in status_val.lower() or "brak" in status_val.lower():
                     status_val = "brak linku"
                 rows.append({
-                    "Wybierz": False, # Domyślnie brak ptaszka
+                    "Wybierz": False,
                     "Fraza w tekście (Anchor)": parts[0].replace("`", "").replace("*", "").strip(),
                     "Status linkowania": status_val
                 })
@@ -153,15 +152,24 @@ TEKST:
     df = pd.DataFrame(rows)
     return df.head(20)
 
-def match_keywords_to_sitemap(api_key, keywords_list, urls):
+def match_keywords_to_sitemap(api_key, keywords_list, urls, is_ecommerce):
     client = OpenAI(api_key=api_key)
     urls_formatted = "\n".join(urls[:350])
     keywords_formatted = ", ".join(keywords_list)
     
+    ecommerce_instruction = ""
+    if is_ecommerce:
+        ecommerce_instruction = """
+ZASADA DLA SKLEPU INTERNETOWEGO:
+- Strona jest SKLEPEM INTERNETOWYM. 
+- W miarę możliwości dopasowuj frazy do adresów URL reprezentujących KATEGORIE (wersje mnoga, np. /kategoria/bluzki/, /komody/), a nie pojedyncze produkty, chyba że z kontekstu wynika jednoznacznie inaczej.
+"""
+
     prompt = f"""
 Dopasuj poniższe wybrane przez użytkownika frazy kluczowe do adresów URL z sitemapy.
 FRAZY DO PODLINKOWANIA: {keywords_formatted}
 URL-E Z SITEMAPY: {urls_formatted}
+{ecommerce_instruction}
 ZWRÓĆ WYNIK WYŁĄCZNIE W FORMACIE TABELI Z KOLUMNAMI ODDZIELONYMI ŚREDNIKIEM (;):
 Fraza / Anchor;Rekomendowany Pełny URL;Uzasadnienie dopasowania
 
@@ -171,7 +179,7 @@ Zasady:
 """
     response = client.chat.completions.create(
         model="gpt-4o-mini",
-        messages=[{"role": "system", "content": "Jesteś ekspertem SEO."}, {"role": "user", "content": prompt}],
+        messages=[{"role": "system", "content": "Jesteś ekspertem SEO ds. architektury sklepów internetowych."}, {"role": "user", "content": prompt}],
         temperature=0.1
     )
     
@@ -274,7 +282,6 @@ if st.session_state.detected_keywords is not None:
     st.write("Zaznacz ptaszkami w kolumnie **Wybierz**, które frazy mają zostać wzięte pod uwagę przy szukaniu URL-i w sitemapie.")
 
     if not st.session_state.detected_keywords.empty:
-        # Dynamiczna wysokość tabeli dopasowana do liczby wierszy (max 20), brak wewnętrznego paska przewijania
         num_rows = len(st.session_state.detected_keywords)
         table_height = max(120, (num_rows + 1) * 35 + 5)
 
@@ -303,6 +310,12 @@ if st.session_state.detected_keywords is not None:
     st.markdown("---")
     st.subheader("3. Dopasuj nowe linki z Sitemapy")
     
+    # Checkbox dla e-commerce
+    is_ecommerce_site = st.checkbox(
+        "Mam sklep internetowy (szukaj w sitemapie przede wszystkim kategorii w liczbie mnogiej np. 'bluzki', 'komody')", 
+        value=True
+    )
+
     col_btn, _ = st.columns([1, 2])
     with col_btn:
         fetch_robots_btn = st.button("Pobierz automatycznie sitemapę z robots.txt", use_container_width=True)
@@ -318,7 +331,7 @@ if st.session_state.detected_keywords is not None:
                     st.session_state.sitemap_url_val = found_sitemap
                     st.success("Znaleziono sitemapę w robots.txt!")
                 else:
-                    st.error("Nie znaleziono ścieżki do sitemapy w pliku robots.txt.")
+                    st.error("Nie znaleziono ścieżki do sitemapy w robots.txt.")
 
     sitemap_input = st.text_input(
         "Adres Sitemapy XML:", 
@@ -343,7 +356,7 @@ if st.session_state.detected_keywords is not None:
             selected_rows = st.session_state.detected_keywords[st.session_state.detected_keywords["Wybierz"] == True]
             
             if selected_rows.empty:
-                st.warning("Nie zaznaczono żadnej frazy do przetworzenia. Zaznacz przynajimensionalnie jeden wiersz w tabeli powyżej.")
+                st.warning("Nie zaznaczono żadnej frazy do przetworzenia. Zaznacz przynajmniej jeden wiersz w tabeli powyżej.")
             else:
                 start_time = time.time()
                 status_text = st.empty()
@@ -372,7 +385,7 @@ if st.session_state.detected_keywords is not None:
                     status_text.markdown("**[3/3] Dopasowywanie nowych adresów URL przez AI dla zaznaczonych fraz...**")
 
                     kw_list_to_match = selected_rows["Fraza w tekście (Anchor)"].tolist()
-                    df_final = match_keywords_to_sitemap(api_key_input, kw_list_to_match, filtered_urls)
+                    df_final = match_keywords_to_sitemap(api_key_input, kw_list_to_match, filtered_urls, is_ecommerce_site)
 
                     progress_bar.progress(100)
                     status_text.success("Gotowe!")
