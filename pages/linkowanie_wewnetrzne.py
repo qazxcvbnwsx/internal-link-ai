@@ -47,6 +47,9 @@ if "candidate_urls" not in st.session_state:
 if "final_results" not in st.session_state:
     st.session_state.final_results = None
 
+if "searched_anchors" not in st.session_state:
+    st.session_state.searched_anchors = set()
+
 
 IGNORED_EXTENSIONS = (
     ".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".bmp", ".ico",
@@ -894,6 +897,7 @@ if analyze_btn:
             st.session_state.analysis_results = results
             st.session_state.selected_anchors = []
             st.session_state.final_results = None
+            st.session_state.searched_anchors = set()
 
             elapsed = time.time() - start_time
 
@@ -918,6 +922,13 @@ if st.session_state.analysis_results is not None:
 
     st.markdown("---")
     st.subheader("2. Wybierz frazy do linkowania")
+
+    if st.session_state.final_results is not None:
+        st.info(
+            "Możesz wrócić do tej listy w dowolnym momencie, "
+            "zaznaczyć kolejne frazy i ponownie uruchomić wyszukiwanie. "
+            "Wcześniejsze rekomendacje zostaną zachowane."
+        )
 
     df = st.session_state.analysis_results
 
@@ -952,6 +963,11 @@ if st.session_state.analysis_results is not None:
             )
 
             col2.write(anchor)
+
+            if anchor.lower() in {
+                a.lower() for a in st.session_state.searched_anchors
+            }:
+                col2.caption("✓ już przeszukana")
 
             if status.startswith("http"):
 
@@ -1061,14 +1077,48 @@ if (
 
     source_url = st.session_state.article_url
 
+    already_searched = st.session_state.searched_anchors.intersection(
+        set(st.session_state.selected_anchors)
+    )
+
+    new_selected = [
+        anchor
+        for anchor in st.session_state.selected_anchors
+        if anchor not in st.session_state.searched_anchors
+    ]
+
+    if st.session_state.final_results is not None:
+        st.caption(
+            f"Nowo wybrane frazy: {len(new_selected)} | "
+            f"Wcześniej przeszukane: {len(already_searched)}"
+        )
+        match_button_label = "Ponownie przeszukaj zaznaczone frazy"
+    else:
+        match_button_label = (
+            "Krok 3: Znajdź najlepsze URL-e dla wybranych fraz"
+        )
+
     match_btn = st.button(
-        "Krok 3: Znajdź najlepsze URL-e dla wybranych fraz",
+        match_button_label,
         type="primary",
         use_container_width=True
     )
 
 
     if match_btn:
+
+        anchors_to_search = [
+            anchor
+            for anchor in st.session_state.selected_anchors
+            if anchor not in st.session_state.searched_anchors
+        ]
+
+        if not anchors_to_search:
+            st.warning(
+                "Nie wybrano nowych fraz do wyszukania. "
+                "Zaznacz nową frazę na liście powyżej."
+            )
+            st.stop()
 
         if not sitemap_input:
 
@@ -1183,7 +1233,7 @@ if (
 
                 candidates_by_anchor = {}
 
-                for anchor in st.session_state.selected_anchors:
+                for anchor in anchors_to_search:
 
                     candidates = rank_candidate_urls(
                         anchor,
@@ -1260,7 +1310,7 @@ if (
                 )
 
                 for index, anchor in enumerate(
-                    st.session_state.selected_anchors
+                    anchors_to_search
                 ):
 
                     candidates = candidates_by_anchor.get(
@@ -1367,9 +1417,7 @@ if (
                             ((index + 1) /
                              max(
                                  1,
-                                 len(
-                                     st.session_state.selected_anchors
-                                 )
+                                 len(anchors_to_search)
                              ))
                             * 30
                         )
@@ -1388,9 +1436,34 @@ if (
                     final_rows
                 )
 
-                st.session_state.final_results = (
-                    final_df
+                # Zapamiętujemy, które anchory zostały już przeszukane.
+                st.session_state.searched_anchors.update(
+                    anchors_to_search
                 )
+
+                # Nie kasujemy wcześniejszych wyników.
+                # Nowe rekomendacje są dokładane do istniejącego raportu.
+                if (
+                    st.session_state.final_results is not None
+                    and not st.session_state.final_results.empty
+                ):
+                    previous_df = st.session_state.final_results
+
+                    combined_df = pd.concat(
+                        [previous_df, final_df],
+                        ignore_index=True
+                    )
+
+                    # Ten sam anchor może pojawić się tylko raz w raporcie.
+                    combined_df = combined_df.drop_duplicates(
+                        subset=["Anchor"],
+                        keep="last"
+                    )
+
+                    st.session_state.final_results = combined_df
+
+                else:
+                    st.session_state.final_results = final_df
 
                 st.rerun()
 
@@ -1493,7 +1566,9 @@ if st.session_state.final_results is not None:
 
 
         st.info(
-            "Następny krok wykonujesz ręcznie: "
-            "znajdujesz wskazany anchor w artykule "
-            "i dodajesz do niego rekomendowany URL."
+            "Linki nie są automatycznie wstawiane do artykułu. "
+            "Możesz teraz ręcznie dodać wybrane linki albo wrócić "
+            "do listy anchorów powyżej, zaznaczyć kolejne frazy "
+            "i kliknąć „Ponownie przeszukaj zaznaczone frazy”. "
+            "Wcześniejsze rekomendacje pozostaną w raporcie."
         )
