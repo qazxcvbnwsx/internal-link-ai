@@ -52,7 +52,6 @@ def extract_structured_text_from_url(url):
     try:
         downloaded = trafilatura.fetch_url(url)
         if downloaded:
-            # Włączamy zachowanie linków w tekście (include_links=True)
             text = trafilatura.extract(downloaded, output_format='markdown', include_formatting=True, include_links=True)
             if text:
                 return text
@@ -107,15 +106,17 @@ def extract_keywords_with_ai(api_key, article_text):
     client = OpenAI(api_key=api_key)
     prompt = f"""
 Przeanalizuj poniższy tekst pod kątem SEO i linkowania wewnętrznego.
-Zwróć uwagę na istniejące już linki w tekście (są zapisane w formacie Markdown np. [tekst](url)).
+Tekst zawiera już pewne linki w formacie Markdown np. [tekst_linku](url_docelowy).
 Twoim zadaniem jest:
 1. Wykryć i wypisać frazy, które MAJĄ JUŻ przypisany link w tekście oraz dokąd prowadzą.
-2. Znaleźć 8-15 NOWYCH fraz i słów kluczowych, które NIE MAJĄ jeszcze linków, a stanowią świetne anchory pod propozycje z sitemapy.
+2. Znaleźć 8-15 NOWYCH fraz i słów kluczowych, które NIE MAJą jeszcze linków, a stanowią świetne anchory pod propozycje z sitemapy.
 
-ZWRÓĆ WYNIK W FORMACIE DWÓCH TABEL LUB JEDNEJ TABELI ROZDZIELONEJ ŚREDNIKIEM (;):
-Kolumny: Fraza w tekście (Anchor);Status linkowania (Już podlinkowane [URL] / Wolne do linku);Proponowana tematyka lub docelowy link
+ZWRÓĆ WYNIK WYŁĄCZNIE W FORMACIE TABELI Z KOLUMNAMI ODDZIELONYMI ŚREDNIKIEM (;):
+Fraza w tekście (Anchor);Status linkowania (np. Już podlinkowane do [URL] / Wolne do linku);Proponowana tematyka lub docelowy link
 
-Zasady: Brak wstępów, tylko wiersze tabeli rozdzielone średnikami.
+Zasady:
+- Żadnych wstępów, żadnych podsumowań.
+- Nie używaj znaczników kodu markdown (```) w odpowiedzi, zwróc sam czysty tekst z liniami oddzielonymi średnikami.
 
 TEKST:
 {article_text[:12000]}
@@ -125,7 +126,16 @@ TEKST:
         messages=[{"role": "system", "content": "Jesteś analitykiem SEO wykrywającym istniejące linki w treści."}, {"role": "user", "content": prompt}],
         temperature=0.1
     )
+    
     result_text = response.choices[0].message.content.strip()
+    
+    # Bezpieczne usunięcie znaczników markdown kodu, jeśli AI je doda pomimo zakazu
+    if result_text.startswith("```"):
+        lines = result_text.split("\n")
+        # Usuwamy pierwszą i ewentualnie ostatnią linię z ```
+        lines = [l for l in lines if not l.strip().startswith("```")]
+        result_text = "\n".join(lines)
+
     rows = []
     for line in result_text.split("\n"):
         line_clean = line.strip()
@@ -143,27 +153,36 @@ def match_keywords_to_sitemap(api_key, keywords_df, urls):
     client = OpenAI(api_key=api_key)
     urls_formatted = "\n".join(urls[:350])
     
-    # Bierzemy tylko te, które są wolne lub wymagają weryfikacji
-    free_keywords = keywords_df[keywords_df["Status linkowania"].str.lower().str.contains("wolne|brak|nowe", na=True)]
+    # Wybieramy frazy, które nie mają jasnego oznaczenia jako już podlinkowane (lub traktujemy jako wolne)
+    free_keywords = keywords_df[~keywords_df["Status linkowania"].str.lower().str.contains("już podlinkowane|podlinkowany|tak", na=False)]
+    if free_keywords.empty:
+        free_keywords = keywords_df # jeśli wszystkie uzna za zajęte, bierzemy wszystkie dla bezpieczeństwa
+
     keywords_formatted = ", ".join(free_keywords["Fraza w tekście (Anchor)"].tolist())
     
     prompt = f"""
-Dopasuj poniższe wolne frazy kluczowe do adresów URL z sitemapy.
+Dopasuj poniższe frazy kluczowe do adresów URL z sitemapy.
 FRAZY DO PODLINKOWANIA: {keywords_formatted}
 URL-E Z SITEMAPY: {urls_formatted}
-ZWRÓĆ WYNIK W FORMACIE TABELI Z KOLUMNAMI ROZDZIELONYMI ŚREDNIKIEM (;):
+ZWRÓĆ WYNIK WYŁĄCZNIE W FORMACIE TABELI Z KOLUMNAMI ODDZIELONYMI ŚREDNIKIEM (;):
 Fraza / Anchor;Rekomendowany Pełny URL;Uzasadnienie dopasowania
 
 Zasady:
 1. W kolumnie 'Rekomendowany Pełny URL' podaj pełny adres URL (z https://) z sitemapy.
-2. Tylko linie danych rozdzielone średnikiem.
+2. Bez znaczników markdown kodu, tylko linie danych oddzielone średnikiem.
 """
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "system", "content": "Jesteś ekspertem SEO."}, {"role": "user", "content": prompt}],
         temperature=0.1
     )
+    
     result_text = response.choices[0].message.content.strip()
+    if result_text.startswith("```"):
+        lines = result_text.split("\n")
+        lines = [l for l in lines if not l.strip().startswith("```")]
+        result_text = "\n".join(lines)
+
     rows = []
     for line in result_text.split("\n"):
         line_clean = line.strip()
@@ -198,7 +217,7 @@ if input_type == "Wklej tekst ręcznie":
         with st.container(height=300):
             st.markdown(current_text)
 else:
-    article_url = st.text_input("Adres URL wpisu:", placeholder="https://twojadomena.pl/moj-artykul")
+    article_url = st.text_input("Adres URL wpisu:", placeholder="[https://twojadomena.pl/moj-artykul](https://twojadomena.pl/moj-artykul)")
     if article_url:
         st.session_state.article_url_val = article_url
         with st.spinner("Pobieranie treści wraz z istniejącymi linkami..."):
@@ -259,7 +278,7 @@ if st.session_state.detected_keywords is not None:
         st.success("Wykryto status linkowania dla poszczególnych fraz w tekście:")
         st.dataframe(st.session_state.detected_keywords, use_container_width=True)
     else:
-        st.warning("Nie udało się wyodrębnić wyników.")
+        st.warning("Nie udało się wyodrębnić wyników. Spróbuj kliknąć analizę ponownie.")
 
     st.markdown("---")
     st.subheader("3. Dopasuj nowe linki z Sitemapy")
@@ -279,12 +298,12 @@ if st.session_state.detected_keywords is not None:
                     st.session_state.sitemap_url_val = found_sitemap
                     st.success("Znaleziono sitemapę w robots.txt!")
                 else:
-                    st.error("Nie znaleziono ścieżki do sitemapy w robots.txt.")
+                    st.error("Nie znaleziono ścieżki do sitemapy w pliku robots.txt.")
 
     sitemap_input = st.text_input(
         "Adres Sitemapy XML:", 
         value=st.session_state.sitemap_url_val,
-        placeholder="https://twojadomena.pl/sitemap.xml"
+        placeholder="[https://twojadomena.pl/sitemap.xml](https://twojadomena.pl/sitemap.xml)"
     )
 
     with st.expander("Zaawansowane filtry URL-i z sitemapy (opcjonalnie)", expanded=False):
