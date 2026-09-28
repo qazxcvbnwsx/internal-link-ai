@@ -101,6 +101,48 @@ def get_urls_from_sitemap(url, progress_callback=None, visited=None, total_state
             urls.extend(get_urls_from_sitemap(sub_url, progress_callback, visited, total_state))
     return list(dict.fromkeys(urls))
 
+def filter_out_products_with_ai(api_key, urls):
+    if not urls:
+        return urls
+    client = OpenAI(api_key=api_key)
+    sample_urls = urls[:120]
+    prompt = f"""
+Przeanalizuj poniższą listę adresów URL ze sklepu/strony internetowej.
+Podaj zasady filtrowania (wzorce w URL), które pozwolą ODRZUCIĆ karty pojedynczych produktów, a ZOSTAWIĆ kategorie, podkategorie i strony informacyjne.
+PRÓBKA URL:
+{chr(10).join(sample_urls)}
+ZWRÓĆ WYNIK W FORMACIE JSON BEZ DODATKOWEGO TEKSTU:
+{{
+  "exclude_patterns": ["wzorzec1", "wzorzec2"],
+  "include_patterns": ["wzorzec1", "wzorzec2"]
+}}
+"""
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "system", "content": "Jesteś analitykiem struktur URL. Zwracasz wyłącznie czysty JSON."}, {"role": "user", "content": prompt}],
+            temperature=0.0
+        )
+        import json
+        res_content = response.choices[0].message.content.strip()
+        if res_content.startswith("```json"):
+            res_content = res_content.replace("```json", "").replace("```", "").strip()
+        rules = json.loads(res_content)
+        exclude_p = [p.lower() for p in rules.get("exclude_patterns", []) if p]
+        include_p = [p.lower() for p in rules.get("include_patterns", []) if p]
+
+        filtered = []
+        for u in urls:
+            u_lower = u.lower()
+            if include_p and not any(inc in u_lower for inc in include_p):
+                continue
+            if exclude_p and any(exc in u_lower for exc in exclude_p):
+                continue
+            filtered.append(u)
+        return filtered if filtered else urls
+    except Exception:
+        return [u for u in urls if not any(p in u.lower() for p in ["/p/", "-p-", "/produkt/", "/product/"])]
+
 def extract_keywords_with_ai(api_key, article_text):
     client = OpenAI(api_key=api_key)
     prompt = f"""
@@ -177,7 +219,7 @@ current_text = ""
 if input_type == "Wklej tekst ręcznie":
     current_text = st.text_area("Wklej tutaj tekst artykułu:", height=220)
 else:
-    article_url = st.text_input("Adres URL wpisu:", placeholder="https://twojadomena.pl/moj-artykul")
+    article_url = st.text_input("Adres URL wpisu:", placeholder="[https://twojadomena.pl/moj-artykul](https://twojadomena.pl/moj-artykul)")
     if article_url:
         st.session_state.article_url_val = article_url
         with st.spinner("Pobieranie treści..."):
@@ -221,13 +263,15 @@ if st.session_state.detected_keywords is not None and not st.session_state.detec
         if not sitemap_input:
             st.error("Wprowadź adres sitemapy!")
         else:
-            with st.spinner("Pobieranie sitemapy i dopasowywanie linków przez AI..."):
+            with st.spinner("Pobieranie sitemapy, filtrowanie produktów i dopasowywanie linków przez AI..."):
                 raw_urls = get_urls_from_sitemap(sitemap_input)
+                filtered_urls = filter_out_products_with_ai(api_key_input, raw_urls)
+                
                 kw_list = st.session_state.detected_keywords["Fraza w tekście (Anchor)"].tolist()
-                df_final = match_keywords_to_sitemap(api_key_input, kw_list, raw_urls)
+                df_final = match_keywords_to_sitemap(api_key_input, kw_list, filtered_urls)
                 
                 if not df_final.empty:
-                    st.success("Gotowe!")
+                    st.success(f"Gotowe! Przeanalizowano sitemapę (odrzucono produkty, zostawiono {len(filtered_urls)} adresów).")
                     st.dataframe(df_final, use_container_width=True)
                     csv_data = df_final.to_csv(index=False).encode('utf-8')
                     st.download_button("Pobierz raport CSV", data=csv_data, file_name="linkowanie.csv", mime="text/csv")
