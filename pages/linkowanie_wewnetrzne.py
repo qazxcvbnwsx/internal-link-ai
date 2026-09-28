@@ -2,6 +2,7 @@ import os
 import xml.etree.ElementTree as ET
 import urllib.request
 import time
+import re
 import pandas as pd
 import streamlit as st
 import trafilatura
@@ -108,31 +109,27 @@ Przeanalizuj poniższy tekst pod kątem SEO i linkowania wewnętrznego.
 Tekst zawiera już pewne linki w formacie Markdown np. [tekst_linku](url_docelowy).
 Twoim zadaniem jest:
 1. Wykryć i wypisać frazy, które MAJĄ JUŻ przypisany link w tekście oraz dokąd prowadzą (w kolumnie statusu podaj sam czysty URL docelowy).
-2. Znaleźć maksymalnie 20 fraz i słów kluczowych, które stanowią świetne anchory. Jeśli nie mają linku, w kolumnie statusu wpisz dokładnie "brak linku".
+2. Znaleźć maksymalnie 20 konkretnych fraz i słów kluczowych (np. "otulacze", "kocyki", "kombinezony", "pajace niemowlęce"), które stanowią świetne anchory do linkowania kategorii. Jeśli nie mają linku, w kolumnie statusu wpisz dokładnie "brak linku".
 
 ZWRÓĆ WYNIK WYŁĄCZNIE W FORMACIE TABELI Z KOLUMNAMI ODDZIELONYMI ŚREDNIKIEM (;):
 Fraza w tekście (Anchor);Status linkowania (Wpisz sam pełny URL lub dokładnie "brak linku")
 
 Zasady:
-- Żadnych wstępów, żadnych podsumowań.
-- Bez kolumny proponowana tematyka.
+- Żadnych wstępów, żadnych podsumowań, żadnego formatowania markdown (```).
+- Tylko czyste linie rozdzielone średnikiem.
 - Maksymalnie 20 wierszy.
-- Nie używaj znaczników kodu markdown (```) w odpowiedzi.
 
 TEKST:
 {article_text[:12000]}
 """
     response = client.chat.completions.create(
         model="gpt-4o-mini",
-        messages=[{"role": "system", "content": "Jesteś analitykiem SEO. Zwracasz wyłącznie tabelę ze średnikami."}, {"role": "user", "content": prompt}],
+        messages=[{"role": "system", "content": "Jesteś precyzyjnym analitykiem SEO."}, {"role": "user", "content": prompt}],
         temperature=0.1
     )
     
     result_text = response.choices[0].message.content.strip()
-    if result_text.startswith("```"):
-        lines = result_text.split("\n")
-        lines = [l for l in lines if not l.strip().startswith("```")]
-        result_text = "\n".join(lines)
+    result_text = result_text.replace("```csv", "").replace("```", "").strip()
 
     rows = []
     for line in result_text.split("\n"):
@@ -140,11 +137,12 @@ TEKST:
         if ";" in line_clean and not any(h in line_clean.lower() for h in ["fraza w tekście", "status linkowania"]):
             parts = line_clean.split(";")
             if len(parts) >= 2:
+                anchor = parts[0].replace("`", "").replace("*", "").strip()
                 status_val = parts[1].replace("`", "").replace("*", "").strip()
                 if not status_val or "wolne" in status_val.lower() or "brak" in status_val.lower():
                     status_val = "brak linku"
                 rows.append({
-                    "Fraza w tekście (Anchor)": parts[0].replace("`", "").replace("*", "").strip(),
+                    "Fraza w tekście (Anchor)": anchor,
                     "Status linkowania": status_val
                 })
     
@@ -153,16 +151,17 @@ TEKST:
 
 def match_keywords_to_sitemap(api_key, keywords_list, urls, is_ecommerce):
     client = OpenAI(api_key=api_key)
-    urls_formatted = "\n".join(urls[:400])
+    urls_formatted = "\n".join(urls[:500])
     keywords_formatted = ", ".join(keywords_list)
     
     ecommerce_instruction = ""
     if is_ecommerce:
         ecommerce_instruction = """
-ZASADA DLA SKLEPU INTERNETOWEGO (BARDZO WAŻNE):
-- Strona jest SKLEPEM INTERNETOWYM. 
-- Priorytetowo dopasowuj frazy do adresów URL reprezentujących KATEGORIE / PODKATEGORIE w sitemapie (szukaj słów kluczowych odpowiadających danej frazie w adresach URL kategorii np. /c/ lub /kategoria/).
-- UNIKAJE dopasowywania fraz rzeczownikowych (np. "otulacze", "kocyki", "czapki") do losowych pojedynczych produktów lub zestawów (np. zestawów ubranek), jeśli w sitemapie istnieje dedykowana strona kategorii o tej samej nazwie!
+ZASADA DLA SKLEPU INTERNETOWEGO (BEZWZGLĘDNIE PRZESTRZEGAJ):
+- Strona jest SKLEPEM INTERNETOWYM.
+- Dopasowuj frazy DO NAJDOKŁADNIEJSZYCH ADRESÓW URL KATEGORII LUB STRON INFORMACYJNYCH z sitemapy.
+- ZABRONIONE jest sklejanie tekstu z URL-em! Każdy rekord w tabeli musi mieć osobno poprawną frazę, osobno osobny pełny URL (zaczynający się od https://) oraz osobne uzasadnienie.
+- Jeśli dla danej frazy (np. "otulacze") istnieje w sitemapie kategoria zawierająca to słowo (np. /otulacze/ lub /Otulacze-dla-niemowlat/), MUSISZ wybrać ten URL kategorii, a NIE losowy produkt czy zestaw!
 """
 
     prompt = f"""
@@ -170,36 +169,50 @@ Dopasuj poniższe wybrane przez użytkownika frazy kluczowe do adresów URL z si
 FRAZY DO PODLINKOWANIA: {keywords_formatted}
 URL-E Z SITEMAPY: {urls_formatted}
 {ecommerce_instruction}
-ZWRÓĆ WYNIK WYŁĄCZNIE W FORMACIE TABELI Z KOLUMNAMI ODDZIELONYMI ŚREDNIKIEM (;):
+ZWRÓĆ WYNIK WYŁĄCZNIE W FORMACIE CSV / TABELI Z KOLUMNAMI ODDZIELONYMI ŚREDNIKIEM (;):
 Fraza / Anchor;Rekomendowany Pełny URL;Uzasadnienie dopasowania
 
 Zasady:
-1. W kolumnie 'Rekomendowany Pełny URL' podaj najdokładniejszy, pełny adres URL (z https://) z sitemapy.
-2. Bez znaczników markdown kodu, tylko linie danych oddzielone średnikiem.
+1. Kolumna 1: Dokładna fraza / anchor.
+2. Kolumna 2: Pełny, poprawny adres URL (musi zaczynać się od https:// i pochodzić z dostarczonej listy URL-i).
+3. Kolumna 3: Krótkie uzasadnienie.
+4. Żadnych znaczników markdown (```), żadnych spacji na początku linii, wyłącznie czyste linie ze średnikami.
 """
     response = client.chat.completions.create(
         model="gpt-4o-mini",
-        messages=[{"role": "system", "content": "Jesteś ekspertem SEO ds. architektury sklepów internetowych."}, {"role": "user", "content": prompt}],
-        temperature=0.1
+        messages=[{"role": "system", "content": "Jesteś bardzo dokładnym ekspertem SEO bazy danych URL."}, {"role": "user", "content": prompt}],
+        temperature=0.0
     )
     
     result_text = response.choices[0].message.content.strip()
-    if result_text.startswith("```"):
-        lines = result_text.split("\n")
-        lines = [l for l in lines if not l.strip().startswith("```")]
-        result_text = "\n".join(lines)
+    result_text = result_text.replace("```csv", "").replace("```", "").strip()
 
     rows = []
+    url_pattern = re.compile(r'https?://[^\s;]+')
+
     for line in result_text.split("\n"):
         line_clean = line.strip()
-        if ";" in line_clean and not any(h in line_clean.lower() for h in ["fraza / anchor", "rekomendowany pełny url"]):
-            parts = line_clean.split(";")
-            if len(parts) >= 3:
+        if not line_clean or any(h in line_clean.lower() for h in ["fraza / anchor", "rekomendowany pełny url"]):
+            continue
+            
+        # Bezpieczne wyciąganie URL-a z linii za pomocą Regex, na wypadek sklejenia tekstu
+        urls_in_line = url_pattern.findall(line_clean)
+        if urls_in_line:
+            target_url = urls_in_line[0]
+            # Usuwamy URL z linii, żeby wyciągnąć frazę
+            left_part = line_clean.replace(target_url, "")
+            parts = [p.strip() for p in left_part.split(";") if p.strip()]
+            
+            if parts:
+                anchor = parts[0].replace("`", "").replace("*", "").strip()
+                reason = parts[1] if len(parts) > 1 else "Dopasowanie przez AI"
+                
                 rows.append({
-                    "Fraza / Anchor z tekstu": parts[0].replace("`", "").replace("*", "").strip(),
-                    "Rekomendowany Pełny URL": parts[1].strip(),
-                    "Uzasadnienie AI": parts[2].strip()
+                    "Fraza / Anchor z tekstu": anchor,
+                    "Rekomendowany Pełny URL": target_url,
+                    "Uzasadnienie AI": reason
                 })
+    
     return pd.DataFrame(rows)
 
 st.markdown("<h1>Linkowanie Wewnętrzne AI</h1>", unsafe_allow_html=True)
@@ -223,7 +236,7 @@ if input_type == "Wklej tekst ręcznie":
         with st.container(height=300):
             st.markdown(current_text)
 else:
-    article_url = st.text_input("Adres URL wpisu:", placeholder="[https://twojadomena.pl/moj-artykul](https://twojadomena.pl/moj-artykul)")
+    article_url = st.text_input("Adres URL wpisu:", placeholder="https://twojadomena.pl/moj-artykul")
     if article_url:
         st.session_state.article_url_val = article_url
         with st.spinner("Pobieranie treści wraz z istniejącymi linkami..."):
@@ -294,7 +307,6 @@ if st.session_state.detected_keywords is not None:
             for idx, row in st.session_state.detected_keywords.iterrows():
                 col1, col2, col3 = st.columns([1, 4, 3])
                 
-                # Sprawdzamy czy fraza była wcześniej zatwierdzona w sesji, żeby stan checkboxa nie znikał
                 saved_states = st.session_state.get("saved_checkbox_states", {})
                 default_val = saved_states.get(row["Fraza w tekście (Anchor)"], False)
 
@@ -352,7 +364,7 @@ if st.session_state.detected_keywords is not None:
     sitemap_input = st.text_input(
         "Adres Sitemapy XML:", 
         value=st.session_state.sitemap_url_val,
-        placeholder="[https://twojadomena.pl/sitemap.xml](https://twojadomena.pl/sitemap.xml)"
+        placeholder="https://twojadomena.pl/sitemap.xml"
     )
 
     with st.expander("Zaawansowane filtry URL-i z sitemapy (opcjonalnie)", expanded=False):
