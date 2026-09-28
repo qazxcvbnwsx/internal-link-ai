@@ -144,7 +144,6 @@ TEKST:
                 if not status_val or "wolne" in status_val.lower() or "brak" in status_val.lower():
                     status_val = "brak linku"
                 rows.append({
-                    "Wybierz": False,
                     "Fraza w tekście (Anchor)": parts[0].replace("`", "").replace("*", "").strip(),
                     "Status linkowania": status_val
                 })
@@ -278,39 +277,51 @@ if analyze_step1_btn:
 # --- KROK 2 I 3: WYKRYTE FRAZY ORAZ SITEMAPA ---
 if st.session_state.detected_keywords is not None:
     st.markdown("---")
-    st.subheader("2. Analiza istniejących linków i wybór fraz do linkowania")
-    st.write("Zaznacz ptaszkami w kolumnie **Wybierz**, które frazy mają zostać wzięte pod uwagę przy szukaniu URL-i w sitemapie.")
+    st.subheader("2. Wybierz frazy do linkowania")
+    st.write("Zaznacz interesujące Cię frazy. Możesz zaznaczyć dowolną liczbę pozycji bez obawy o przeładowanie strony.")
+
+    selected_keywords_list = []
 
     if not st.session_state.detected_keywords.empty:
-        num_rows = len(st.session_state.detected_keywords)
-        table_height = max(120, (num_rows + 1) * 35 + 5)
+        # Tworzymy elegancką listę z checkboxami bez automatycznego przeładowywania
+        with st.form("keywords_selection_form"):
+            checkbox_states = {}
+            
+            # Nagłówki kolumn podglądu
+            c_head1, c_head2, c_head3 = st.columns([1, 4, 3])
+            c_head1.markdown("**Wybierz**")
+            c_head2.markdown("**Fraza w tekście (Anchor)**")
+            c_head3.markdown("**Status linkowania**")
+            st.write("")
 
-        edited_df = st.data_editor(
-            st.session_state.detected_keywords,
-            height=table_height,
-            use_container_width=True,
-            column_config={
-                "Wybierz": st.column_config.CheckboxColumn(
-                    "Wybierz",
-                    help="Zaznacz, aby uwzględnić tę frazę",
-                    default=False,
-                ),
-                "Status linkowania": st.column_config.LinkColumn(
-                    "Status linkowania / Link",
-                    help="Klikalny link lub tekst 'brak linku'",
-                    validate=r"^(https?://|brak linku$)"
-                )
-            },
-            disabled=["Fraza w tekście (Anchor)", "Status linkowania"]
-        )
-        st.session_state.detected_keywords = edited_df
+            for idx, row in st.session_state.detected_keywords.iterrows():
+                col1, col2, col3 = st.columns([1, 4, 3])
+                
+                # Checkbox domyślnie odznaczony (False)
+                is_checked = col1.checkbox("", key=f"chk_{idx}", value=False)
+                checkbox_states[row["Fraza w tekście (Anchor)"]] = is_checked
+                
+                col2.write(row["Fraza w tekście (Anchor)"])
+                
+                # Wyświetlanie linku lub tekstu "brak linku"
+                status_val = row["Status linkowania"]
+                if status_val.startswith("http"):
+                    col3.markdown(f"[{status_val}]({status_val})")
+                else:
+                    col3.write(status_val)
+
+            st.write("")
+            submit_selection = st.form_submit_button("Zatwierdź zaznaczone frazy do Kroku 3", type="primary")
+            
+            if submit_selection:
+                selected_keywords_list = [phrase for phrase, checked in checkbox_states.items() if checked]
+                st.session_state.temp_selected_keywords = selected_keywords_list
     else:
         st.warning("Nie znaleziono wyników.")
 
     st.markdown("---")
     st.subheader("3. Dopasuj nowe linki z Sitemapy")
     
-    # Checkbox dla e-commerce
     is_ecommerce_site = st.checkbox(
         "Mam sklep internetowy (szukaj w sitemapie przede wszystkim kategorii w liczbie mnogiej np. 'bluzki', 'komody')", 
         value=True
@@ -347,73 +358,72 @@ if st.session_state.detected_keywords is not None:
             exclude_filter = st.text_input("Wyklucz z URL:", value="", placeholder="np. /p/, /tag/")
 
     st.write("")
-    match_step2_btn = st.button("Krok 3: Dopasuj nowe linki do zaznaczonych fraz", type="primary", use_container_width=True)
+    match_step2_btn = st.button("Krok 3: Szukaj i dopasuj linki dla zaznaczonych fraz", type="primary", use_container_width=True)
 
     if match_step2_btn:
-        if not sitemap_input:
+        # Pobieramy zapisane zaznaczenia z sesji lub formularza
+        final_selected = st.session_state.get("temp_selected_keywords", [])
+        
+        if not final_selected:
+            st.warning("Nie zaznaczono żadnej frazy! Zaznacz ptaszkami pozycje powyżej i kliknij 'Zatwierdź zaznaczone frazy do Kroku 3'.")
+        elif not sitemap_input:
             st.error("Wprowadź adres sitemapy XML!")
         else:
-            selected_rows = st.session_state.detected_keywords[st.session_state.detected_keywords["Wybierz"] == True]
-            
-            if selected_rows.empty:
-                st.warning("Nie zaznaczono żadnej frazy do przetworzenia. Zaznacz przynajmniej jeden wiersz w tabeli powyżej.")
-            else:
-                start_time = time.time()
-                status_text = st.empty()
-                progress_bar = st.progress(0)
+            start_time = time.time()
+            status_text = st.empty()
+            progress_bar = st.progress(0)
 
-                try:
-                    status_text.markdown("**[1/3] Pobieranie i parsowanie sitemapy XML...**")
-                    progress_bar.progress(10)
+            try:
+                status_text.markdown("**[1/3] Pobieranie i parsowanie sitemapy XML...**")
+                progress_bar.progress(10)
+                
+                raw_urls = get_urls_from_sitemap(sitemap_input)
+                
+                progress_bar.progress(40)
+                filtered_urls = raw_urls
+                
+                if include_filter.strip():
+                    inc_patterns = [p.strip().lower() for p in include_filter.split(",") if p.strip()]
+                    filtered_urls = [u for u in filtered_urls if any(p in u.lower() for p in inc_patterns)]
                     
-                    raw_urls = get_urls_from_sitemap(sitemap_input)
-                    
-                    progress_bar.progress(40)
-                    filtered_urls = raw_urls
-                    
-                    if include_filter.strip():
-                        inc_patterns = [p.strip().lower() for p in include_filter.split(",") if p.strip()]
-                        filtered_urls = [u for u in filtered_urls if any(p in u.lower() for p in inc_patterns)]
-                        
-                    if exclude_filter.strip():
-                        exc_patterns = [p.strip().lower() for p in exclude_filter.split(",") if p.strip()]
-                        filtered_urls = [u for u in filtered_urls if not any(p in u.lower() for p in exc_patterns)]
+                if exclude_filter.strip():
+                    exc_patterns = [p.strip().lower() for p in exclude_filter.split(",") if p.strip()]
+                    filtered_urls = [u for u in filtered_urls if not any(p in u.lower() for p in exc_patterns)]
 
-                    st.info(f"Po przefiltrowaniu pozostało {len(filtered_urls)} adresów URL stron.")
+                st.info(f"Po przefiltrowaniu pozostało {len(filtered_urls)} adresów URL stron.")
 
-                    progress_bar.progress(60)
-                    status_text.markdown("**[3/3] Dopasowywanie nowych adresów URL przez AI dla zaznaczonych fraz...**")
+                progress_bar.progress(60)
+                status_text.markdown("**[3/3] Dopasowywanie nowych adresów URL przez AI dla zaznaczonych fraz...**")
 
-                    kw_list_to_match = selected_rows["Fraza w tekście (Anchor)"].tolist()
-                    df_final = match_keywords_to_sitemap(api_key_input, kw_list_to_match, filtered_urls, is_ecommerce_site)
+                df_final = match_keywords_to_sitemap(api_key_input, final_selected, filtered_urls, is_ecommerce_site)
 
-                    progress_bar.progress(100)
-                    status_text.success("Gotowe!")
+                progress_bar.progress(100)
+                status_text.success("Gotowe!")
 
-                    st.write("### Gotowe propozycje nowych linków:")
-                    if not df_final.empty:
-                        st.dataframe(
-                            df_final,
-                            use_container_width=True,
-                            column_config={
-                                "Rekomendowany Pełny URL": st.column_config.LinkColumn(
-                                    "Rekomendowany Pełny URL",
-                                    help="Kliknij pełny adres URL, aby otworzyć go w nowej karcie"
-                                )
-                            }
-                        )
+                st.write("### Gotowe propozycje nowych linków:")
+                if not df_final.empty:
+                    st.dataframe(
+                        df_final,
+                        use_container_width=True,
+                        column_config={
+                            "Rekomendowany Pełny URL": st.column_config.LinkColumn(
+                                "Rekomendowany Pełny URL",
+                                help="Kliknij pełny adres URL, aby otworzyć go w nowej karcie"
+                            )
+                        }
+                    )
 
-                        csv_data = df_final.to_csv(index=False).encode('utf-8')
-                        st.download_button(
-                            label="Pobierz końcowy raport CSV",
-                            data=csv_data,
-                            file_name="nowe_linkowanie_seo.csv",
-                            mime="text/csv"
-                        )
-                    else:
-                        st.warning("AI nie znalazło dopasowań dla zaznaczonych fraz w sitemapie.")
+                    csv_data = df_final.to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        label="Pobierz końcowy raport CSV",
+                        data=csv_data,
+                        file_name="nowe_linkowanie_seo.csv",
+                        mime="text/csv"
+                    )
+                else:
+                    st.warning("AI nie znalazło dopasowań dla zaznaczonych fraz w sitemapie.")
 
-                except Exception as e:
-                    status_text.empty()
-                    progress_bar.empty()
-                    st.error(f"Błąd podczas dopasowywania sitemapy: {e}")
+            except Exception as e:
+                status_text.empty()
+                progress_bar.empty()
+                st.error(f"Błąd podczas dopasowywania sitemapy: {e}")
