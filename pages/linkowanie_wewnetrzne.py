@@ -218,6 +218,10 @@ input_type = st.radio("Sposób wprowadzania artykułu:", ["Wklej tekst ręcznie"
 current_text = ""
 if input_type == "Wklej tekst ręcznie":
     current_text = st.text_area("Wklej tutaj tekst artykułu:", height=220)
+    if current_text:
+        st.write("**Podgląd wprowadzonej treści:**")
+        with st.container(height=300):
+            st.markdown(current_text)
 else:
     article_url = st.text_input("Adres URL wpisu:", placeholder="[https://twojadomena.pl/moj-artykul](https://twojadomena.pl/moj-artykul)")
     if article_url:
@@ -227,6 +231,11 @@ else:
             if fetched_text:
                 current_text = fetched_text
                 st.success(f"Pobrano treść ({len(current_text)} znaków).")
+                st.write("**Podgląd pobranej treści (ze strukturą nagłówków i list):**")
+                with st.container(height=300):
+                    st.markdown(current_text)
+            else:
+                st.error("Nie udało się pobrać treści z URL.")
 
 if st.button("Krok 1: Analizuj tekst i znajdź frazy do linkowania", type="primary"):
     if not api_key_input:
