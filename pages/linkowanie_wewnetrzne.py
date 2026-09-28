@@ -2,6 +2,7 @@ import os
 import xml.etree.ElementTree as ET
 import urllib.request
 import time
+import json
 import pandas as pd
 import streamlit as st
 import trafilatura
@@ -123,7 +124,6 @@ ZWRÓĆ WYNIK W FORMACIE JSON BEZ DODATKOWEGO TEKSTU:
             messages=[{"role": "system", "content": "Jesteś analitykiem struktur URL. Zwracasz wyłącznie czysty JSON."}, {"role": "user", "content": prompt}],
             temperature=0.0
         )
-        import json
         res_content = response.choices[0].message.content.strip()
         if res_content.startswith("```json"):
             res_content = res_content.replace("```json", "").replace("```", "").strip()
@@ -183,6 +183,10 @@ FRAZY: {keywords_formatted}
 URL-E: {urls_formatted}
 ZWRÓĆ WYNIK W FORMACIE TABELI Z KOLUMNAMI ROZDZIELONYMI ŚREDNIKIEM (;):
 Fraza / Anchor;Rekomendowany Pełny URL;Uzasadnienie dopasowania
+
+Zasady:
+1. W kolumnie 'Rekomendowany Pełny URL' podaj pełny adres URL (z https://) z sitemapy.
+2. Tylko linie danych rozdzielone średnikiem.
 """
     response = client.chat.completions.create(
         model="gpt-4o-mini",
@@ -211,6 +215,7 @@ if secret_key:
 else:
     api_key_input = st.sidebar.text_input("Klucz OpenAI API Key:", type="password")
 
+# --- KROK 1: TREŚĆ WPISU ---
 st.markdown("---")
 st.subheader("1. Treść wpisu")
 input_type = st.radio("Sposób wprowadzania artykułu:", ["Wklej tekst ręcznie", "Pobierz z adresu URL"], horizontal=True)
@@ -237,52 +242,171 @@ else:
             else:
                 st.error("Nie udało się pobrać treści z URL.")
 
-if st.button("Krok 1: Analizuj tekst i znajdź frazy do linkowania", type="primary"):
+st.write("")
+analyze_step1_btn = st.button("Krok 1: Analizuj tekst i znajdź frazy do linkowania", type="primary")
+
+if analyze_step1_btn:
     if not api_key_input:
         st.error("Wprowadź Klucz OpenAI API!")
     elif not current_text.strip():
         st.error("Podaj treść artykułu lub link!")
     else:
-        with st.spinner("Analizowanie tekstu przez AI..."):
+        start_time_step1 = time.time()
+        status_text_1 = st.empty()
+        progress_bar_1 = st.progress(0)
+        timer_text_1 = st.empty()
+
+        try:
+            status_text_1.markdown("**[1/2] Przygotowywanie tekstu do analizy przez AI...**")
+            progress_bar_1.progress(20)
+            
+            elapsed = int(time.time() - start_time_step1)
+            timer_text_1.caption(f"Czas trwania: {elapsed} sek.")
+            
+            st.session_state.article_text_saved = current_text
+
+            status_text_1.markdown("**[2/2] Wyciąganie fraz kluczowych i anchorów przez model GPT-4o-mini...**")
+            progress_bar_1.progress(60)
+
             df_keywords = extract_keywords_with_ai(api_key_input, current_text)
+            
+            progress_bar_1.progress(100)
+            total_elapsed = round(time.time() - start_time_step1, 1)
+            status_text_1.success(f"Zakończono analizę tekstu w {total_elapsed} sek.!")
+            timer_text_1.empty()
+
             st.session_state.detected_keywords = df_keywords
-            st.success("Zakończono analizę tekstu!")
             st.rerun()
 
-if st.session_state.detected_keywords is not None and not st.session_state.detected_keywords.empty:
+        except Exception as e:
+            status_text_1.empty()
+            progress_bar_1.empty()
+            timer_text_1.empty()
+            st.error(f"Błąd analizy tekstu: {e}")
+
+# --- KROK 2 I 3: WYKRYTE FRAZY ORAZ SITEMAPA ---
+if st.session_state.detected_keywords is not None:
     st.markdown("---")
     st.subheader("2. Wykryte frazy przez AI")
-    st.dataframe(st.session_state.detected_keywords, use_container_width=True)
+
+    if not st.session_state.detected_keywords.empty:
+        st.success(f"AI wytypowało {len(st.session_state.detected_keywords)} fraz z tekstu pod kątem anchorów:")
+        st.dataframe(st.session_state.detected_keywords, use_container_width=True)
+    else:
+        st.warning("Nie udało się wyodrębnić jednoznacznych wyników. Spróbuj kliknąć analizę ponownie.")
 
     st.markdown("---")
     st.subheader("3. Dopasuj linki z Sitemapy")
     
-    if st.button("Pobierz sitemapę z robots.txt"):
-        if st.session_state.article_url_val:
-            found_sitemap = get_sitemap_from_robots(st.session_state.article_url_val)
-            if found_sitemap:
-                st.session_state.sitemap_url_val = found_sitemap
-                st.success("Znaleziono sitemapę!")
-            else:
-                st.error("Nie znaleziono sitemapy w robots.txt.")
-
-    sitemap_input = st.text_input("Adres Sitemapy XML:", value=st.session_state.sitemap_url_val)
-
-    if st.button("Krok 2: Dopasuj linki z sitemapy", type="primary"):
-        if not sitemap_input:
-            st.error("Wprowadź adres sitemapy!")
+    col_btn, col_blank = st.columns([1, 2])
+    with col_btn:
+        fetch_robots_btn = st.button("Pobierz automatycznie sitemapę z robots.txt", use_container_width=True)
+    
+    if fetch_robots_btn:
+        target_domain = st.session_state.article_url_val
+        if not target_domain:
+            st.warning("Najpierw podaj URL artykułu w Kroku 1 lub wklej adres domeny.")
         else:
-            with st.spinner("Pobieranie sitemapy, filtrowanie produktów i dopasowywanie linków przez AI..."):
-                raw_urls = get_urls_from_sitemap(sitemap_input)
-                filtered_urls = filter_out_products_with_ai(api_key_input, raw_urls)
-                
-                kw_list = st.session_state.detected_keywords["Fraza w tekście (Anchor)"].tolist()
-                df_final = match_keywords_to_sitemap(api_key_input, kw_list, filtered_urls)
-                
-                if not df_final.empty:
-                    st.success(f"Gotowe! Przeanalizowano sitemapę (odrzucono produkty, zostawiono {len(filtered_urls)} adresów).")
-                    st.dataframe(df_final, use_container_width=True)
-                    csv_data = df_final.to_csv(index=False).encode('utf-8')
-                    st.download_button("Pobierz raport CSV", data=csv_data, file_name="linkowanie.csv", mime="text/csv")
+            with st.spinner("Sprawdzanie pliku robots.txt..."):
+                found_sitemap = get_sitemap_from_robots(target_domain)
+                if found_sitemap:
+                    st.session_state.sitemap_url_val = found_sitemap
+                    st.success("Znaleziono sitemapę w robots.txt!")
                 else:
-                    st.warning("Brak dopasowań.")
+                    st.error("Nie znaleziono ścieżki do sitemapy w pliku robots.txt.")
+
+    sitemap_input = st.text_input(
+        "Adres Sitemapy XML:", 
+        value=st.session_state.sitemap_url_val,
+        placeholder="[https://twojadomena.pl/sitemap.xml](https://twojadomena.pl/sitemap.xml)"
+    )
+
+    with st.expander("Zaawansowane filtry URL-i z sitemapy (opcjonalnie)", expanded=False):
+        col_inc, col_exc = st.columns(2)
+        with col_inc:
+            include_filter = st.text_input("Musi zawierać w URL:", value="", placeholder="np. /kategoria/, /blog/")
+        with col_exc:
+            exclude_filter = st.text_input("Wyklucz z URL:", value="", placeholder="np. /p/, /tag/")
+
+    st.write("")
+    match_step2_btn = st.button("Krok 3: Sprawdź i dopasuj linki z sitemapy", type="primary", use_container_width=True)
+
+    if match_step2_btn:
+        if not sitemap_input:
+            st.error("Wprowadź adres sitemapy XML!")
+        else:
+            start_time = time.time()
+            
+            status_text = st.empty()
+            progress_bar = st.progress(0)
+            timer_text = st.empty()
+
+            try:
+                status_text.markdown("**[1/3] Pobieranie i parsowanie sitemapy XML...**")
+                progress_bar.progress(10)
+                
+                def update_status(msg):
+                    elapsed = int(time.time() - start_time)
+                    timer_text.caption(f"Czas trwania: {elapsed} sek.")
+                    status_text.markdown(f"**[1/3] {msg}**")
+
+                raw_urls = get_urls_from_sitemap(sitemap_input, progress_callback=update_status)
+                
+                progress_bar.progress(40)
+                status_text.markdown(f"**[2/3] Stosowanie filtrów do {len(raw_urls)} pobranych URL-i...**")
+                
+                filtered_urls = raw_urls
+                
+                if include_filter.strip():
+                    inc_patterns = [p.strip().lower() for p in include_filter.split(",") if p.strip()]
+                    filtered_urls = [u for u in filtered_urls if any(p in u.lower() for p in inc_patterns)]
+                    
+                if exclude_filter.strip():
+                    exc_patterns = [p.strip().lower() for p in exclude_filter.split(",") if p.strip()]
+                    filtered_urls = [u for u in filtered_urls if not any(p in u.lower() for p in exc_patterns)]
+
+                st.info(f"Po przefiltrowaniu pozostało {len(filtered_urls)} z {len(raw_urls)} adresów URL stron.")
+
+                progress_bar.progress(60)
+                elapsed = int(time.time() - start_time)
+                status_text.markdown(f"**[3/3] Dopasowywanie adresów URL przez AI...**")
+                timer_text.caption(f"Czas trwania: {elapsed} sek.")
+
+                kw_list = st.session_state.detected_keywords["Fraza w tekście (Anchor)"].tolist()
+
+                df_final = match_keywords_to_sitemap(api_key_input, kw_list, filtered_urls)
+
+                progress_bar.progress(100)
+                total_elapsed = round(time.time() - start_time, 1)
+                
+                status_text.success(f"Gotowe! Zrealizowano w {total_elapsed} sek.")
+                timer_text.empty()
+
+                st.write("### Gotowe dopasowania linkowania wewnętrznego:")
+                if not df_final.empty:
+                    st.dataframe(
+                        df_final,
+                        use_container_width=True,
+                        column_config={
+                            "Rekomendowany Pełny URL": st.column_config.LinkColumn(
+                                "Rekomendowany Pełny URL",
+                                help="Kliknij pełny adres URL, aby otworzyć go w nowej karcie"
+                            )
+                        }
+                    )
+
+                    csv_data = df_final.to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        label="Pobierz końcowy raport CSV",
+                        data=csv_data,
+                        file_name="gotowe_linkowanie_seo.csv",
+                        mime="text/csv"
+                    )
+                else:
+                    st.warning("AI nie znalazło ścisłych dopasowań w przefiltrowanej sitemapie dla tych fraz.")
+
+            except Exception as e:
+                status_text.empty()
+                progress_bar.empty()
+                timer_text.empty()
+                st.error(f"Błąd podczas dopasowywania sitemapy: {e}")
