@@ -153,15 +153,16 @@ TEKST:
 
 def match_keywords_to_sitemap(api_key, keywords_list, urls, is_ecommerce):
     client = OpenAI(api_key=api_key)
-    urls_formatted = "\n".join(urls[:350])
+    urls_formatted = "\n".join(urls[:400])
     keywords_formatted = ", ".join(keywords_list)
     
     ecommerce_instruction = ""
     if is_ecommerce:
         ecommerce_instruction = """
-ZASADA DLA SKLEPU INTERNETOWEGO:
+ZASADA DLA SKLEPU INTERNETOWEGO (BARDZO WAŻNE):
 - Strona jest SKLEPEM INTERNETOWYM. 
-- W miarę możliwości dopasowuj frazy do adresów URL reprezentujących KATEGORIE (wersje mnoga, np. /kategoria/bluzki/, /komody/), a nie pojedyncze produkty, chyba że z kontekstu wynika jednoznacznie inaczej.
+- Priorytetowo dopasowuj frazy do adresów URL reprezentujących KATEGORIE / PODKATEGORIE w sitemapie (szukaj słów kluczowych odpowiadających danej frazie w adresach URL kategorii np. /c/ lub /kategoria/).
+- UNIKAJE dopasowywania fraz rzeczownikowych (np. "otulacze", "kocyki", "czapki") do losowych pojedynczych produktów lub zestawów (np. zestawów ubranek), jeśli w sitemapie istnieje dedykowana strona kategorii o tej samej nazwie!
 """
 
     prompt = f"""
@@ -173,7 +174,7 @@ ZWRÓĆ WYNIK WYŁĄCZNIE W FORMACIE TABELI Z KOLUMNAMI ODDZIELONYMI ŚREDNIKIEM
 Fraza / Anchor;Rekomendowany Pełny URL;Uzasadnienie dopasowania
 
 Zasady:
-1. W kolumnie 'Rekomendowany Pełny URL' podaj pełny adres URL (z https://) z sitemapy.
+1. W kolumnie 'Rekomendowany Pełny URL' podaj najdokładniejszy, pełny adres URL (z https://) z sitemapy.
 2. Bez znaczników markdown kodu, tylko linie danych oddzielone średnikiem.
 """
     response = client.chat.completions.create(
@@ -280,14 +281,10 @@ if st.session_state.detected_keywords is not None:
     st.subheader("2. Wybierz frazy do linkowania")
     st.write("Zaznacz interesujące Cię frazy. Możesz zaznaczyć dowolną liczbę pozycji bez obawy o przeładowanie strony.")
 
-    selected_keywords_list = []
-
     if not st.session_state.detected_keywords.empty:
-        # Tworzymy elegancką listę z checkboxami bez automatycznego przeładowywania
         with st.form("keywords_selection_form"):
             checkbox_states = {}
             
-            # Nagłówki kolumn podglądu
             c_head1, c_head2, c_head3 = st.columns([1, 4, 3])
             c_head1.markdown("**Wybierz**")
             c_head2.markdown("**Fraza w tekście (Anchor)**")
@@ -297,13 +294,15 @@ if st.session_state.detected_keywords is not None:
             for idx, row in st.session_state.detected_keywords.iterrows():
                 col1, col2, col3 = st.columns([1, 4, 3])
                 
-                # Checkbox domyślnie odznaczony (False)
-                is_checked = col1.checkbox("", key=f"chk_{idx}", value=False)
+                # Sprawdzamy czy fraza była wcześniej zatwierdzona w sesji, żeby stan checkboxa nie znikał
+                saved_states = st.session_state.get("saved_checkbox_states", {})
+                default_val = saved_states.get(row["Fraza w tekście (Anchor)"], False)
+
+                is_checked = col1.checkbox("", key=f"chk_{idx}", value=default_val)
                 checkbox_states[row["Fraza w tekście (Anchor)"]] = is_checked
                 
                 col2.write(row["Fraza w tekście (Anchor)"])
                 
-                # Wyświetlanie linku lub tekstu "brak linku"
                 status_val = row["Status linkowania"]
                 if status_val.startswith("http"):
                     col3.markdown(f"[{status_val}]({status_val})")
@@ -311,11 +310,17 @@ if st.session_state.detected_keywords is not None:
                     col3.write(status_val)
 
             st.write("")
-            submit_selection = st.form_submit_button("Zatwierdź zaznaczone frazy do Kroku 3", type="primary")
+            submit_selection = st.form_submit_button("Zatwierdź zaznaczone frazy", type="primary")
             
             if submit_selection:
                 selected_keywords_list = [phrase for phrase, checked in checkbox_states.items() if checked]
                 st.session_state.temp_selected_keywords = selected_keywords_list
+                st.session_state.saved_checkbox_states = checkbox_states
+                
+                if selected_keywords_list:
+                    st.success(f"✅ Zatwierdzono! Wybrano {len(selected_keywords_list)} fraz do analizy w Kroku 3.")
+                else:
+                    st.warning("⚠️ Nie zaznaczono żadnej frazy.")
     else:
         st.warning("Nie znaleziono wyników.")
 
@@ -323,7 +328,7 @@ if st.session_state.detected_keywords is not None:
     st.subheader("3. Dopasuj nowe linki z Sitemapy")
     
     is_ecommerce_site = st.checkbox(
-        "Mam sklep internetowy (szukaj w sitemapie przede wszystkim kategorii w liczbie mnogiej np. 'bluzki', 'komody')", 
+        "Mam sklep internetowy (szukaj w sitemapie przede wszystkim kategorii w liczbie mnogiej np. 'bluzki', 'komody', 'otulacze')", 
         value=True
     )
 
@@ -342,7 +347,7 @@ if st.session_state.detected_keywords is not None:
                     st.session_state.sitemap_url_val = found_sitemap
                     st.success("Znaleziono sitemapę w robots.txt!")
                 else:
-                    st.error("Nie znaleziono ścieżki do sitemapy w robots.txt.")
+                    st.error("Nie znaleziono ścieżki do sitemapy w pliku robots.txt.")
 
     sitemap_input = st.text_input(
         "Adres Sitemapy XML:", 
@@ -361,11 +366,10 @@ if st.session_state.detected_keywords is not None:
     match_step2_btn = st.button("Krok 3: Szukaj i dopasuj linki dla zaznaczonych fraz", type="primary", use_container_width=True)
 
     if match_step2_btn:
-        # Pobieramy zapisane zaznaczenia z sesji lub formularza
         final_selected = st.session_state.get("temp_selected_keywords", [])
         
         if not final_selected:
-            st.warning("Nie zaznaczono żadnej frazy! Zaznacz ptaszkami pozycje powyżej i kliknij 'Zatwierdź zaznaczone frazy do Kroku 3'.")
+            st.warning("Nie zaznaczono żadnej frazy! Zaznacz ptaszkami pozycje powyżej i kliknij 'Zatwierdź zaznaczone frazy'.")
         elif not sitemap_input:
             st.error("Wprowadź adres sitemapy XML!")
         else:
