@@ -1,9 +1,8 @@
-import asyncio
-import aiohttp
 import xml.etree.ElementTree as ET
 import urllib.request
 import pandas as pd
 import streamlit as st
+import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 
@@ -22,10 +21,9 @@ if source_type == "Z sitemapy XML":
     if st.button("Pobierz adresy z sitemapy"):
         if sitemap_url:
             try:
-                req = urllib.request.Request(sitemap_url, headers={"User-Agent": "Mozilla/5.0"})
-                with urllib.request.urlopen(req, timeout=10) as resp:
-                    xml_data = resp.read()
-                root = ET.fromstring(xml_data)
+                headers = {"User-Agent": "Mozilla/5.0"}
+                resp = requests.get(sitemap_url, headers=headers, timeout=10)
+                root = ET.fromstring(resp.content)
                 found = [elem.text.strip() for elem in root.iter() if elem.tag.endswith('loc') and elem.text]
                 st.session_state.sitemap_urls = found
                 st.success(f"Pobrano {len(found)} adresów URL z sitemapy.")
@@ -45,95 +43,84 @@ else:
 st.markdown("---")
 # Opcja e-commerce
 skip_products_on_categories = st.checkbox(
-    "🛒 Sklep internetowy: Na stronach kategorii pomijaj linki prowadzące do produktów (przyspiesza skanowanie i skupia się na menu/stopce/treści)", 
+    "🛒 Sklep internetowy: Na stronach kategorii pomijaj linki prowadzące do produktów", 
     value=True
 )
 
-
-# Funkcja asynchroniczna do sprawdzania pojedynczego linku
-async def check_single_link(session, source_page, link_url):
+def check_link_status(url):
     try:
-        async with session.get(link_url, timeout=7, allow_redirects=True) as response:
-            status = response.status
-            return {"Strona źródłowa": source_page, "Sprawdzany link": link_url, "Status HTTP": status}
-    except asyncio.TimeoutError:
-        return {"Strona źródłowa": source_page, "Sprawdzany link": link_url, "Status HTTP": "Timeout"}
+        resp = requests.head(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5, allow_redirects=True)
+        # Jeśli serwer nie obsługuje HEAD, spróbuj GET
+        if resp.status_code >= 400:
+            resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5, allow_redirects=True)
+        return resp.status_code
+    except requests.Timeout:
+        return "Timeout"
     except Exception:
-        return {"Strona źródłowa": source_page, "Sprawdzany link": link_url, "Status HTTP": "Błąd połączenia"}
+        return "Błąd połączenia"
 
-
-# Główna funkcja skanująca podstrony
-async def audit_site_for_404(pages_list, skip_prods):
+def audit_site_for_404(pages_list, skip_prods):
     broken_links = []
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+    headers = {"User-Agent": "Mozilla/5.0"}
     
-    # Wzorce po których rozpoznamy czy dany URL to podstrona kategorii w sklepie
     category_indicators = ['/c/', '/kategoria/', '/kolekcja/', '/katalog/', '/shop/']
-    # Wzorce po których rozpoznamy linki do pojedynczych produktów
     product_indicators = ['/p/', '-p-', '/produkt/', '/product/', '/towar/']
 
-    async with aiohttp.ClientSession(headers=headers) as session:
-        progress_bar = st.progress(0)
-        status_text = st.empty()
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    pages_to_scan = pages_list[:100]  # Ograniczenie do 100 stron dla bezpieczeństwa
+    
+    for idx, page_url in enumerate(pages_to_scan):
+        status_text.markdown(f"Skanowanie strony ({idx+1}/{len(pages_to_scan)}): `{page_url}`")
+        progress_bar.progress((idx + 1) / len(pages_to_scan))
         
-        # Limit do 150 stron dla bezpieczeństwa zasobów
-        pages_to_scan = pages_list[:150]
-        
-        for idx, page_url in enumerate(pages_to_scan):
-            status_text.markdown(f"Skanowanie strony ({idx+1}/{len(pages_to_scan)}): `{page_url}`")
-            progress_bar.progress((idx + 1) / len(pages_to_scan))
-            
-            try:
-                async with session.get(page_url, timeout=8) as resp:
-                    if resp.status == 200:
-                        html = await resp.text()
-                        soup = BeautifulSoup(html, 'html.parser')
-                        
-                        parsed_base = urlparse(page_url)
-                        domain = parsed_base.netloc
-                        
-                        # Sprawdzamy czy obecna strona to kategoria
-                        is_category_page = any(ind in page_url.lower() for ind in category_indicators)
-                        
-                        internal_links = set()
-                        for a_tag in soup.find_all('a', href=True):
-                            href = a_tag['href']
-                            full_url = urljoin(page_url, href)
-                            parsed_full = urlparse(full_url)
-                            
-                            # Tylko linki wewnętrzne, bez kotwic (#) i plików graficznych/pdf
-                            if parsed_full.netloc == domain and '#' not in parsed_full.path:
-                                clean_link = full_url.split('#')[0]
-                                
-                                # Jeśli włączone jest pomijanie produktów na kategoriach
-                                if skip_prods and is_category_page:
-                                    if any(prod_ind in clean_link.lower() for prod_ind in product_indicators):
-                                        continue # Pomijamy link do produktu na stronie kategorii!
-
-                                internal_links.add(clean_link)
-                                
-                        # Sprawdzanie statusów znalezionych linków asynchronicznie (max 25 linków ze strony)
-                        tasks = [check_single_link(session, page_url, link) for link in list(internal_links)[:25]]
-                        results = await asyncio.gather(*tasks)
-                        
-                        for res in results:
-                            if res["Status HTTP"] in [404, 410, "Timeout", "Błąd połączenia"]:
-                                broken_links.append(res)
-            except Exception:
-                continue
+        try:
+            resp = requests.get(page_url, headers=headers, timeout=8)
+            if resp.status_code == 200:
+                soup = BeautifulSoup(resp.text, 'html.parser')
+                parsed_base = urlparse(page_url)
+                domain = parsed_base.netloc
                 
-        status_text.empty()
-        progress_bar.empty()
-        
-    return pd.DataFrame(broken_links)
+                is_category_page = any(ind in page_url.lower() for ind in category_indicators)
+                
+                internal_links = set()
+                for a_tag in soup.find_all('a', href=True):
+                    href = a_tag['href']
+                    full_url = urljoin(page_url, href)
+                    parsed_full = urlparse(full_url)
+                    
+                    if parsed_full.netloc == domain and '#' not in parsed_full.path:
+                        clean_link = full_url.split('#')[0]
+                        
+                        if skip_prods and is_category_page:
+                            if any(prod_ind in clean_link.lower() for prod_ind in product_indicators):
+                                continue
 
+                        internal_links.add(clean_link)
+                        
+                # Sprawdzanie linków ze strony (max 20 linków na stronę)
+                for link in list(internal_links)[:20]:
+                    status = check_link_status(link)
+                    if status in [404, 410, "Timeout", "Błąd połączenia"]:
+                        broken_links.append({
+                            "Strona źródłowa": page_url,
+                            "Sprawdzany link": link,
+                            "Status HTTP": status
+                        })
+        except Exception:
+            continue
+            
+    status_text.empty()
+    progress_bar.empty()
+    return pd.DataFrame(broken_links)
 
 if st.button("🚀 Rozpocznij audyt linków 404", type="primary"):
     if not urls_to_check:
         st.warning("Najpierw wklej lub pobierz listę adresów URL.")
     else:
-        with st.spinner("Trwa błyskawiczne skanowanie asynchroniczne..."):
-            df_broken = asyncio.run(audit_site_for_404(urls_to_check, skip_products_on_categories))
+        with st.spinner("Trwa skanowanie..."):
+            df_broken = audit_site_for_404(urls_to_check, skip_products_on_categories)
             
             st.write("### Wyniki audytu martwych linków:")
             if not df_broken.empty:
